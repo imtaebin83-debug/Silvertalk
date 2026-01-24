@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import logging
+from redis import Redis
 
 # 라우터 import
 from app.routers import auth, users, home, gallery, calendar, chat, video, memory
@@ -16,6 +17,9 @@ from common.database import init_db
 # 로깅 설정
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# 레디스 설정
+rd = Redis(host='redis', port=6379)
 
 
 # ============================================================
@@ -91,11 +95,16 @@ app.include_router(memory.router)
 # ============================================================
 @app.get("/", tags=["System"])
 async def root():
+    
+    rd.set("server_status", "connected")
+    redis_status = rd.get("server_status").decode('utf-8')
+    
     """서비스 상태 확인"""
     return {
         "service": "SilverTalk API",
         "status": "running",
         "version": "1.0.0",
+        "redis_status": redis_status,
         "description": "반려견 AI와 함께하는 회상 치료 서비스",
         "docs": "/docs",
         "redoc": "/redoc"
