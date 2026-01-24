@@ -1,0 +1,132 @@
+version: '3.8'
+
+services:
+  # PostgreSQL 데이터베이스
+  postgres:
+    image: postgres:15-alpine
+    container_name: silvertalk-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=silvertalk
+      - POSTGRES_PASSWORD=silvertalk_dev_password
+      - POSTGRES_DB=silvertalk
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - silvertalk-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U silvertalk"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis (메시지 브로커 및 결과 백엔드)
+  redis:
+    image: redis:7-alpine
+    container_name: silvertalk-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    networks:
+      - silvertalk-network
+
+  # FastAPI 웹 서버
+  web:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.api
+    container_name: silvertalk-web
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - ./data:/app/data
+    environment:
+      - DATABASE_URL=postgresql://silvertalk:silvertalk_dev_password@postgres:5432/silvertalk
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    networks:
+      - silvertalk-network
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # Celery Worker (AI 처리)
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.worker
+    container_name: silvertalk-worker
+    volumes:
+      - ./backend:/app
+      - ./data:/app/data
+      - ./backend/models:/app/models  # AI 모델 가중치 저장소
+    environment:
+      - DATABASE_URL=postgresql://silvertalk:silvertalk_dev_password@postgres:5432/silvertalk
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      # 로컬 개발 환경: CPU 모드 강제 (GPU 없는 Windows/Mac)
+      - CUDA_VISIBLE_DEVICES=""
+      # AWS 프로덕션 배포 시: 위 라인을 주석 처리하거나 삭제하세요
+    env_file:
+      - .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    networks:
+      - silvertalk-network
+    command: celery -A worker.celery_app worker --loglevel=info --concurrency=2
+    
+    # ============================================================
+    # GPU 설정 (AWS 프로덕션 환경 전용)
+    # ============================================================
+    # 로컬 개발 시: 아래 주석을 유지하세요 (GPU 없어도 에러 방지)
+    # AWS g4dn.xlarge 배포 시: 아래 주석을 해제하고 위의 CUDA_VISIBLE_DEVICES="" 라인 삭제
+    # ============================================================
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  # Flower (Celery 모니터링 대시보드)
+  flower:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.api
+    container_name: silvertalk-flower
+    ports:
+      - "5555:5555"
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      - redis
+      - worker
+    networks:
+      - silvertalk-network
+    command: celery -A worker.celery_app flower --port=5555
+
+volumes:
+  postgres-data:
+  redis-data:
+
+networks:
+  silvertalk-network:
+    driver: bridge

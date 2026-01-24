@@ -1,0 +1,112 @@
+[tool.poetry]
+name = "silvertalk"
+version = "0.1.0"
+description = "AI 기반 회상 치료 서비스 - 반려견 AI와 함께하는 추억 대화"
+authors = ["SilverTalk Team <silvertalk@example.com>"]
+readme = "README.md"
+packages = [{include = "app"}, {include = "common"}, {include = "worker"}]
+
+[tool.poetry.dependencies]
+python = ">=3.10,<3.12"
+
+# Web Framework
+fastapi = "0.109.0"
+uvicorn = {extras = ["standard"], version = "0.27.0"}
+python-multipart = "0.0.6"
+
+# Database
+sqlalchemy = "2.0.25"
+psycopg2-binary = "2.9.9"
+alembic = "1.13.1"
+
+# Authentication & Security
+python-jose = {extras = ["cryptography"], version = "^3.3.0"}
+passlib = {extras = ["bcrypt"], version = "^1.7.4"}
+bcrypt = "^4.0.1"
+
+# Async Task Queue
+celery = "5.3.4"
+redis = "5.0.1"
+flower = "2.0.1"
+
+# Utilities
+python-dotenv = "1.0.0"
+requests = "2.31.0"
+pydantic = "2.5.3"
+pydantic-settings = "2.1.0"
+
+# Image Processing
+pillow = "10.2.0"
+
+[tool.poetry.group.ai-models.dependencies]
+# AI Models (Worker용)
+faster-whisper = "0.10.0"
+TTS = "0.21.3"  # Coqui XTTS v2 (안정적 버전)
+google-generativeai = "0.3.2"
+
+# Audio/Video Processing (Worker용)
+av = "11.0.0"
+ffmpeg-python = "0.2.0"
+pydub = "0.25.1"
+soundfile = "0.12.1"
+
+[tool.poetry.group.pytorch.dependencies]
+# PyTorch (Worker용) - CUDA 지원 버전 (프로덕션용)
+torch = "2.1.2"
+torchaudio = "2.1.2"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.0.0"
+pytest-asyncio = "^0.21.0"
+httpx = "^0.24.0"
+black = "^23.0.0"
+isort = "^5.12.0"
+flake8 = "^6.0.0"
+
+[tool.poetry.group.production.dependencies]
+# 프로덕션에서만 필요한 의존성
+boto3 = "^1.34.34"
+
+[[tool.poetry.source]]
+name = "pytorch"
+url = "https://download.pytorch.org/whl/cu118"
+priority = "supplemental"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 88
+target-version = ['py310']
+include = '\.pyi?$'
+extend-exclude = '''
+# A regex preceded by a single or double quote
+(
+  migrations/
+  | __pycache__/
+  | \.git/
+  | \.venv/
+  | venv/
+  | build/
+  | dist/
+)
+'''
+
+[tool.isort]
+profile = "black"
+multi_line_output = 3
+include_trailing_comma = true
+force_grid_wrap = 0
+use_parentheses = true
+ensure_newline_before_comments = true
+line_length = 88
+skip_glob = ["migrations/*", "__pycache__/*", ".venv/*", "venv/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+asyncio_mode = "auto"

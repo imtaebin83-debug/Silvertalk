@@ -1,0 +1,59 @@
+{
+  "expo": {
+    "name": "SilverTalk",
+    "slug": "silvertalk",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.silvertalk.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "package": "com.silvertalk.app",
+      "permissions": [
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "RECORD_AUDIO",
+        "READ_CALENDAR",
+        "ACCESS_FINE_LOCATION"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "할머니의 소중한 추억 사진을 보기 위해 필요합니다.",
+          "savePhotosPermission": "생성된 영상을 저장하기 위해 필요합니다.",
+          "isAccessMediaLocationEnabled": true
+        }
+      ],
+      [
+        "expo-calendar",
+        {
+          "calendarPermission": "사진의 날짜를 확인하기 위해 캘린더 접근이 필요합니다."
+        }
+      ],
+      [
+        "expo-av",
+        {
+          "microphonePermission": "할머니의 목소리를 듣기 위해 마이크 권한이 필요합니다."
+        }
+      ]
+    ]
+  }
+}

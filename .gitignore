@@ -1,0 +1,96 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.venv/
+
+# Poetry
+poetry.lock
+.poetry/
+
+# AI Models (용량이 큰 모델 파일은 Git에서 제외)
+backend/models/
+*.pth
+*.bin
+*.ckpt
+*.pt
+*.safetensors
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+*.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.vs/
+*.code-workspace
+
+# OS
+.DS_Store
+Thumbs.db
+*.DS_Store
+.AppleDouble
+.LSOverride
+
+# Data & Logs
+data/
+logs/
+*.log
+
+# Personal documentation (개인 작업 문서, Git 제외)
+personal-docs/
+
+# Docker
+*.pid
+docker-compose.override.yml
+
+# React Native
+mobile-app/node_modules/
+mobile-app/.expo/
+mobile-app/.expo-shared/
+mobile-app/dist/
+mobile-app/npm-debug.*
+mobile-app/yarn-error.*
+mobile-app/.cache/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Database dumps
+*.sql
+*.sqlite
+*.db
+
+# Secrets & Keys
+*.pem
+*.key
+*.crt
+secrets/
