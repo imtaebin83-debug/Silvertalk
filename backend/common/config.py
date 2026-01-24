@@ -34,7 +34,15 @@ class Settings(BaseSettings):
     
     # 로그 설정
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
-    
+
+    # 카카오 OAuth
+    KAKAO_CLIENT_ID: str = os.getenv("KAKAO_CLIENT_ID", "")
+
+    # JWT 설정
+    JWT_SECRET_KEY: str = os.getenv("JWT_SECRET_KEY", "your-secret-key-change-in-production")
+    JWT_ALGORITHM: str = "HS256"
+    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7일
+
     # 파일 경로
     DATA_DIR: str = "/app/data"
     MODELS_DIR: str = "/app/models"
