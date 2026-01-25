@@ -1,7 +1,7 @@
 """
 Replicate API 클라이언트
 - 이미지 생성: black-forest-labs/flux-schnell
-- 영상 생성: stability-ai/stable-video-diffusion
+- 영상 생성: luma/ray (image-to-video)
 """
 import asyncio
 import httpx
@@ -15,7 +15,8 @@ REPLICATE_PREDICTIONS_URL = f"{REPLICATE_BASE_URL}/predictions"
 
 # 모델별 엔드포인트 (model 필드 대신 URL에 모델 지정)
 FLUX_SCHNELL_URL = f"{REPLICATE_BASE_URL}/models/black-forest-labs/flux-schnell/predictions"
-SVD_URL = f"{REPLICATE_BASE_URL}/models/stability-ai/stable-video-diffusion/predictions"
+# luma/ray는 deprecated, ray-2-720p 사용
+LUMA_RAY_URL = f"{REPLICATE_BASE_URL}/models/luma/ray-2-720p/predictions"
 
 
 class ReplicateError(Exception):
@@ -160,19 +161,19 @@ async def generate_image(
 
 async def generate_video(
     image_url: str,
-    motion_bucket_id: int = 127,
-    fps: int = 7,
-    cond_aug: float = 0.02,
+    prompt: str = "Animate this image with natural, gentle motion",
+    aspect_ratio: str = "1:1",
+    loop: bool = False,
     timeout_seconds: int = 600
 ) -> str:
     """
-    Stable Video Diffusion 모델로 이미지에서 영상 생성
+    Luma Ray 모델로 이미지에서 영상 생성
 
     Args:
-        image_url: 입력 이미지 URL
-        motion_bucket_id: 모션 강도 (1-255, 높을수록 움직임 많음)
-        fps: 출력 프레임 레이트
-        cond_aug: 조건부 augmentation 강도
+        image_url: 입력 이미지 URL 또는 data URI (base64)
+        prompt: 영상 생성 프롬프트 (어떻게 움직일지 설명)
+        aspect_ratio: 영상 비율 (1:1, 16:9, 9:16 등)
+        loop: 루프 영상 여부
         timeout_seconds: 타임아웃 (초, 영상 생성은 오래 걸림)
 
     Returns:
@@ -186,22 +187,25 @@ async def generate_video(
 
     payload = {
         "input": {
-            "input_image": image_url,
-            "motion_bucket_id": motion_bucket_id,
-            "fps": fps,
-            "cond_aug": cond_aug
+            "prompt": prompt,
+            "start_image": image_url,
+            "aspect_ratio": aspect_ratio,
+            "loop": loop
         }
     }
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    # 타임아웃 설정: 연결 10초, 읽기/쓰기 120초 (base64 이미지 전송 고려)
+    timeout_config = httpx.Timeout(connect=10.0, read=120.0, write=120.0, pool=10.0)
+
+    async with httpx.AsyncClient(timeout=timeout_config) as client:
         # 1. Prediction 생성 요청 (모델별 엔드포인트 사용)
         response = await client.post(
-            SVD_URL,
+            LUMA_RAY_URL,
             headers=headers,
             json=payload
         )
 
-        if response.status_code not in (200, 201):
+        if response.status_code not in (200, 201, 202):
             raise ReplicateError(f"영상 생성 요청 실패: {response.status_code} - {response.text}")
 
         data = response.json()
