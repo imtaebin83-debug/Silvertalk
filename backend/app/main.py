@@ -6,9 +6,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import logging
+from redis import Redis
 
 # 라우터 import
-from app.routers import auth, users, home, gallery, calendar, chat, video, memory
+from app.routers import auth, users, home, gallery, calendar, chat, video, memory, generate
 
 # 데이터베이스 초기화
 from common.database import init_db
@@ -16,6 +17,9 @@ from common.database import init_db
 # 로깅 설정
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# 레디스 설정
+rd = Redis(host='redis', port=6379)
 
 
 # ============================================================
@@ -77,6 +81,8 @@ app.add_middleware(
 # 라우터 등록
 # ============================================================
 app.include_router(auth.router)
+# main.py의 라우터 등록 섹션 수정
+#app.include_router(auth.router, prefix="/auth", tags=["Authentication"])
 app.include_router(users.router)
 app.include_router(home.router)
 app.include_router(gallery.router)
@@ -84,6 +90,7 @@ app.include_router(calendar.router)
 app.include_router(chat.router)
 app.include_router(video.router)
 app.include_router(memory.router)
+app.include_router(generate.router)
 
 
 # ============================================================
@@ -91,11 +98,16 @@ app.include_router(memory.router)
 # ============================================================
 @app.get("/", tags=["System"])
 async def root():
+    
+    rd.set("server_status", "connected")
+    redis_status = rd.get("server_status").decode('utf-8')
+    
     """서비스 상태 확인"""
     return {
         "service": "SilverTalk API",
         "status": "running",
         "version": "1.0.0",
+        "redis_status": redis_status,
         "description": "반려견 AI와 함께하는 회상 치료 서비스",
         "docs": "/docs",
         "redoc": "/redoc"

@@ -1,0 +1,55 @@
+# Git line ending normalization
+# 모든 텍스트 파일은 LF로 통일 (Mac/Linux/Windows 호환)
+
+# Auto detect text files and normalize to LF
+* text=auto eol=lf
+
+# Explicitly declare text files
+*.py text eol=lf
+*.js text eol=lf
+*.jsx text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.toml text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+*.sh text eol=lf
+*.bash text eol=lf
+*.env.example text eol=lf
+*.gitignore text eol=lf
+*.gitattributes text eol=lf
+Dockerfile* text eol=lf
+docker-compose*.yml text eol=lf
+
+# Binary files (이미지, 비디오 등)
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.mov binary
+*.mp4 binary
+*.mp3 binary
+*.wav binary
+*.flv binary
+*.fla binary
+*.swf binary
+*.gz binary
+*.zip binary
+*.7z binary
+*.ttf binary
+*.eot binary
+*.woff binary
+*.woff2 binary
+*.pyc binary
+*.pdf binary
+*.db binary
+*.sqlite binary
+*.pth binary
+*.bin binary
+*.ckpt binary
+*.pt binary
+*.safetensors binary
