@@ -14,7 +14,8 @@ TTS==0.21.3  # Coqui XTTS v2 (안정적 버전)
 google-generativeai==0.3.2
 
 # Audio/Video Processing
-av==10.0.0  # PyAV: FFmpeg 4.x 호환 버전
+# PyAV 제거: 환경별 빌드 문제 (FFmpeg 버전, Cython 버전 충돌)
+# TTS는 soundfile 우선 사용 (안정적), PyAV 없이도 정상 작동
 ffmpeg-python==0.2.0
 pydub==0.25.1
 soundfile==0.12.1
