@@ -39,17 +39,19 @@ async def lifespan(app: FastAPI):
     """앱 시작/종료 시 실행"""
     # 시작 시
     logger.info("🚀 SilverTalk API 시작 중...")
-    logger.info("📊 데이터베이스 초기화 중...")
-    # TODO: 실제 DB 초기화 로직 추가
+    logger.info("📊 데이터베이스 초기화 시도 중...")
+    
+    # DB 초기화 (실패해도 계속 진행)
     try:
         init_db()
         logger.info("✅ 데이터베이스 연결 완료")
     except Exception as e:
         logger.warning(f"⚠️ 데이터베이스 연결 실패: {e}")
-        logger.warning("DB 없이 계속 진행...")
-        logger.info("✅ 데이터베이스 초기화 완료")
-        
-        yield
+        logger.warning("⚠️ DB 없이 계속 진행합니다 (일부 기능 제한)")
+    
+    logger.info("✅ SilverTalk API 시작 완료!")
+    
+    yield
     
     # 종료 시
     logger.info("👋 SilverTalk API 종료 중...")
