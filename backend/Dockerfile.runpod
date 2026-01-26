@@ -1,0 +1,35 @@
+# ============================================================
+# SilverTalk Worker Dockerfile - RunPod Production
+# ============================================================
+# 용도: RunPod GPU 환경 전용
+# 기존 Dockerfile.worker와 동일하되 GPU 최적화
+# ============================================================
+
+FROM pytorch/pytorch:2.1.2-cuda11.8-cudnn8-runtime
+
+# 작업 디렉토리
+WORKDIR /app
+
+# 시스템 종속성 (최소화)
+RUN apt-get update && apt-get install -y \
+    git \
+    libsndfile1 \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+# Python 패키지 설치 (requirements.txt 방식)
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# 애플리케이션 코드 복사
+COPY . /app
+
+# 모델 디렉토리 생성
+RUN mkdir -p /app/models
+
+# 환경 변수 (RunPod에서 GPU 사용)
+ENV PYTHONUNBUFFERED=1
+ENV CUDA_VISIBLE_DEVICES=0
+
+# Celery Worker 실행
+CMD ["celery", "-A", "worker.celery_app", "worker", "--loglevel=info", "--concurrency=2"]

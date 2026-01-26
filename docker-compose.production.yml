@@ -1,0 +1,72 @@
+# ============================================================
+# docker-compose.production.yml
+# ============================================================
+# EC2 Production 환경용 (RDS + Upstash Redis 사용)
+# ============================================================
+# 사용법:
+# docker-compose -f docker-compose.production.yml up -d
+# ============================================================
+
+version: '3.8'
+
+services:
+  # FastAPI 웹 서버 (EC2)
+  web:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.api
+    container_name: silvertalk-web-prod
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - ./data:/app/data
+    environment:
+      # Upstash Redis
+      - REDIS_URL=${UPSTASH_REDIS_URL}
+      - CELERY_BROKER_URL=${UPSTASH_REDIS_URL}
+      - CELERY_RESULT_BACKEND=${UPSTASH_REDIS_URL}
+      
+      # RDS PostgreSQL
+      - DATABASE_URL=${PROD_DATABASE_URL}
+      
+      # API Keys
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      
+      # AWS S3
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_REGION=${AWS_REGION}
+      - S3_BUCKET_NAME=${S3_BUCKET_NAME}
+      - STORAGE_BACKEND=${STORAGE_BACKEND}
+      
+      # Environment
+      - ENVIRONMENT=production
+      - DEPLOYMENT_MODE=CLOUD
+    env_file:
+      - .env.ec2
+    restart: unless-stopped
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+  # Flower (Celery 모니터링)
+  flower:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.api
+    container_name: silvertalk-flower-prod
+    ports:
+      - "5555:5555"
+    environment:
+      - CELERY_BROKER_URL=${UPSTASH_REDIS_URL}
+      - CELERY_RESULT_BACKEND=${UPSTASH_REDIS_URL}
+    env_file:
+      - .env.ec2
+    restart: unless-stopped
+    command: celery -A worker.celery_app flower --port=5555
+
+# ============================================================
+# 주의: 
+# - postgres 서비스 없음 (RDS 사용)
+# - redis 서비스 없음 (Upstash 사용)
+# - worker 서비스 없음 (RunPod에서 별도 실행)
+# ============================================================
