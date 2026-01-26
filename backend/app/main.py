@@ -42,8 +42,9 @@ async def lifespan(app: FastAPI):
     logger.info("📊 데이터베이스 초기화 시도 중...")
     
     # DB 초기화 (실패해도 계속 진행)
+    # TODO: DB 초기화 제작
     try:
-        init_db()
+        init_db() # 현재 구현 X
         logger.info("✅ 데이터베이스 연결 완료")
     except Exception as e:
         logger.warning(f"⚠️ 데이터베이스 연결 실패: {e}")
