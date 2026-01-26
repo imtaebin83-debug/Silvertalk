@@ -9,6 +9,8 @@ from celery import Task
 from worker.celery_app import celery_app
 import torch
 
+from common.image_utils import preprocess_image_for_ai, ImageProcessingError
+
 # 로깅 설정
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -345,129 +347,276 @@ def generate_reply_from_text(self: Task, user_text: str, user_id: str, session_i
 # Celery 태스크: 추억 영상 생성
 # ============================================================
 @celery_app.task(bind=True, name="worker.tasks.generate_memory_video")
-def generate_memory_video(self: Task, session_id: str, video_id: str):
+def generate_memory_video(
+    self: Task,
+    session_id: str,
+    video_id: str,
+    video_type: str = "slideshow"
+):
     """
     대화 세션을 기반으로 추억 영상 생성
-    
+
     Flow:
-    1. ChatSession에서 대화 요약 조회
-    2. 삽화 생성 (Replicate/Flux API 또는 원본 사진 활용)
-    3. 내레이션 생성 (Coqui XTTS v2)
-    4. FFmpeg로 영상 렌더링
+    1. SessionPhoto에서 사진 목록 조회
+    2. 내레이션 스크립트 생성 (Gemini)
+    3. TTS 내레이션 생성 (Coqui XTTS v2)
+    4. 영상 생성 (slideshow: FFmpeg / ai_animated: Replicate SVD)
     5. S3 업로드
-    
+
     Args:
         session_id: 대화 세션 ID
         video_id: 생성할 영상 ID
-    
+        video_type: "slideshow" (FFmpeg) 또는 "ai_animated" (Replicate SVD)
+
     Returns:
         dict: 영상 URL 및 상태
     """
+    db = None
+    temp_files = []  # 정리할 임시 파일들
+
     try:
         from common.database import SessionLocal
-        from common.models import ChatSession, GeneratedVideo, ChatLog, VideoStatus
-        
+        from common.models import (
+            ChatSession, GeneratedVideo, ChatLog, VideoStatus,
+            SessionPhoto, VideoType
+        )
+        from common.ffmpeg_client import generate_slideshow, get_video_duration
+        from common.s3_client import upload_video, download_image
+
         db = SessionLocal()
-        
+
         # 세션 조회
         session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
         if not session:
             raise ValueError("세션을 찾을 수 없습니다.")
-        
+
         # 영상 레코드 조회
         video = db.query(GeneratedVideo).filter(GeneratedVideo.id == video_id).first()
         if not video:
             raise ValueError("영상 레코드를 찾을 수 없습니다.")
-        
+
         # 상태 업데이트: PROCESSING
         video.status = VideoStatus.PROCESSING
         db.commit()
-        
-        # Step 1: 대화 로그 수집
-        logger.info(f"[영상 생성] Step 1: 대화 로그 수집 (session_id={session_id})")
+
+        # ============================================================
+        # Step 1: 사진 수집
+        # ============================================================
+        logger.info(f"[영상 생성] Step 1: 사진 수집 (session_id={session_id})")
+
+        # SessionPhoto 테이블에서 순서대로 조회
+        session_photos = (
+            db.query(SessionPhoto)
+            .filter(SessionPhoto.session_id == session_id)
+            .order_by(SessionPhoto.display_order)
+            .all()
+        )
+
+        # SessionPhoto가 없으면 main_photo로 fallback
+        if not session_photos:
+            if session.main_photo:
+                photo_records = [session.main_photo]
+                logger.info("[영상 생성] SessionPhoto 없음, main_photo 사용")
+            else:
+                raise ValueError("세션에 사진이 없습니다.")
+        else:
+            photo_records = [sp.photo for sp in session_photos]
+            logger.info(f"[영상 생성] SessionPhoto {len(photo_records)}장 조회")
+
+        # 사진 다운로드 및 전처리
+        local_photo_paths = []
+        for i, photo in enumerate(photo_records):
+            photo_url = photo.s3_url or photo.local_uri
+            if not photo_url:
+                continue
+
+            # 임시 다운로드 경로
+            temp_download_path = f"/app/data/temp_{video_id}_photo_{i}_raw.tmp"
+            # 전처리된 최종 경로
+            local_path = f"/app/data/temp_{video_id}_photo_{i}.jpg"
+            temp_files.append(temp_download_path)
+            temp_files.append(local_path)
+
+            try:
+                # 1. 원본 다운로드
+                download_image(photo_url, temp_download_path)
+
+                # 2. 전처리 (RGB 변환, 1:1 크롭, 1024x1024, JPEG 85%)
+                with open(temp_download_path, "rb") as f:
+                    original_bytes = f.read()
+
+                processed_bytes = preprocess_image_for_ai(
+                    original_bytes,
+                    target_size=1024,
+                    jpeg_quality=85
+                )
+
+                # 3. 전처리된 이미지 저장
+                with open(local_path, "wb") as f:
+                    f.write(processed_bytes)
+
+                logger.info(f"[영상 생성] 사진 전처리 완료: {len(original_bytes)//1024}KB → {len(processed_bytes)//1024}KB")
+                local_photo_paths.append(local_path)
+
+            except ImageProcessingError as e:
+                logger.warning(f"[영상 생성] 사진 전처리 실패: {photo_url} - {e}")
+            except Exception as e:
+                logger.warning(f"[영상 생성] 사진 다운로드 실패: {photo_url} - {e}")
+
+        if not local_photo_paths:
+            raise ValueError("다운로드된 사진이 없습니다.")
+
+        logger.info(f"[영상 생성] {len(local_photo_paths)}장 사진 다운로드 완료")
+
+        # ============================================================
+        # Step 2: 대화 로그 수집 및 내레이션 생성
+        # ============================================================
+        logger.info(f"[영상 생성] Step 2: 내레이션 스크립트 생성")
+
         logs = db.query(ChatLog).filter(ChatLog.session_id == session_id).all()
-        
         conversation_text = "\n".join([
             f"{'사용자' if log.role == 'user' else '강아지'}: {log.content}"
             for log in logs
         ])
-        
-        # Step 2: 내레이션 스크립트 생성 (Gemini)
-        logger.info(f"[영상 생성] Step 2: 내레이션 스크립트 생성")
+
         if gemini_model is None:
             load_models()
-        
+
+        photo_count = len(local_photo_paths)
         narration_prompt = f"""다음은 할머니와 반려견 AI의 대화 내용입니다.
 
 {conversation_text}
 
 이 대화를 바탕으로 **손주가 할머니에게 들려주는 따뜻한 내레이션**을 작성해주세요.
-2-3문장으로 짧고 감동적으로 작성해주세요.
+{photo_count}장의 사진이 슬라이드쇼로 보여질 예정입니다.
+전체 3-5문장으로 따뜻하고 감동적으로 작성해주세요.
 
 내레이션:"""
-        
+
         response = gemini_model.generate_content(narration_prompt)
         narration_text = response.text.strip()
-        logger.info(f"[영상 생성] 내레이션: {narration_text}")
-        
+        logger.info(f"[영상 생성] 내레이션: {narration_text[:100]}...")
+
+        # ============================================================
         # Step 3: TTS 내레이션 생성
+        # ============================================================
         logger.info(f"[영상 생성] Step 3: TTS 음성 생성")
         narration_audio_path = f"/app/data/video_{video_id}_narration.wav"
+        temp_files.append(narration_audio_path)
         synthesize_speech(narration_text, narration_audio_path)
-        
-        # Step 4: FFmpeg로 영상 렌더링 (간단한 버전)
-        logger.info(f"[영상 생성] Step 4: 영상 렌더링")
+
+        # ============================================================
+        # Step 4: 영상 생성
+        # ============================================================
+        logger.info(f"[영상 생성] Step 4: 영상 렌더링 (type={video_type})")
         output_video_path = f"/app/data/video_{video_id}.mp4"
-        
-        # 원본 사진 경로
-        main_photo = session.main_photo
-        photo_path = main_photo.s3_url if main_photo else None
-        
-        if photo_path and photo_path.startswith("http"):
-            # S3 URL -> 로컬 다운로드 (추후 구현)
-            photo_path = "/app/data/placeholder.jpg"
-        
-        # FFmpeg 명령어 (사진 + 오디오)
-        # (추후 구현: ffmpeg-python 사용)
-        # 현재는 placeholder
-        
-        # Step 5: S3 업로드 (추후 구현)
+        temp_files.append(output_video_path)
+
+        if video_type == "slideshow":
+            # FFmpeg Ken Burns 슬라이드쇼
+            generate_slideshow(
+                image_paths=local_photo_paths,
+                audio_path=narration_audio_path,
+                output_path=output_video_path,
+                duration_per_slide=5.0,
+                resolution=(1080, 1920)  # 세로 모바일
+            )
+        else:
+            # Replicate SVD (첫 번째 사진만 사용)
+            import asyncio
+            import base64
+            from common.replicate_client import generate_video as replicate_generate
+
+            # 첫 사진을 base64로 인코딩
+            with open(local_photo_paths[0], "rb") as f:
+                image_bytes = f.read()
+            base64_image = base64.b64encode(image_bytes).decode("utf-8")
+            data_uri = f"data:image/jpeg;base64,{base64_image}"
+
+            # 비동기 함수 실행
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                svd_video_url = loop.run_until_complete(
+                    replicate_generate(image_url=data_uri)
+                )
+            finally:
+                loop.close()
+
+            # SVD 결과 다운로드
+            import httpx
+            with httpx.Client(timeout=60.0) as http_client:
+                resp = http_client.get(svd_video_url)
+                resp.raise_for_status()
+                with open(output_video_path, "wb") as f:
+                    f.write(resp.content)
+
+            logger.info(f"[영상 생성] SVD 영상 다운로드 완료")
+
+        # ============================================================
+        # Step 5: S3 업로드
+        # ============================================================
         logger.info(f"[영상 생성] Step 5: S3 업로드")
-        video_url = f"https://s3.amazonaws.com/silvertalk/videos/{video_id}.mp4"
-        thumbnail_url = f"https://s3.amazonaws.com/silvertalk/videos/{video_id}_thumb.jpg"
-        
-        # 영상 레코드 업데이트
+
+        video_url, thumbnail_url = upload_video(
+            output_video_path,
+            str(session.user_id),
+            str(video_id)
+        )
+
+        # 영상 길이 조회
+        duration = get_video_duration(output_video_path)
+
+        # ============================================================
+        # Step 6: DB 업데이트
+        # ============================================================
         video.video_url = video_url
         video.thumbnail_url = thumbnail_url
         video.status = VideoStatus.COMPLETED
+        video.video_type = VideoType(video_type)
+        video.duration_seconds = duration
         db.commit()
-        
-        db.close()
-        
-        logger.info(f"[영상 생성] ✅ 완료: {video_url}")
-        
+
+        logger.info(f"[영상 생성] ✅ 완료: {video_url} ({duration:.1f}초)")
+
         return {
             "status": "success",
             "video_id": str(video_id),
             "video_url": video_url,
-            "thumbnail_url": thumbnail_url
+            "thumbnail_url": thumbnail_url,
+            "duration_seconds": duration
         }
-    
+
     except Exception as e:
         logger.error(f"[영상 생성] ❌ 실패: {str(e)}")
-        
+        import traceback
+        logger.error(traceback.format_exc())
+
         # 상태 업데이트: FAILED
-        try:
-            db = SessionLocal()
-            video = db.query(GeneratedVideo).filter(GeneratedVideo.id == video_id).first()
-            if video:
-                video.status = VideoStatus.FAILED
-                db.commit()
-            db.close()
-        except:
-            pass
-        
+        if db:
+            try:
+                from common.models import GeneratedVideo, VideoStatus
+                video = db.query(GeneratedVideo).filter(GeneratedVideo.id == video_id).first()
+                if video:
+                    video.status = VideoStatus.FAILED
+                    db.commit()
+            except:
+                pass
+
         return {
             "status": "error",
             "message": str(e)
         }
+
+    finally:
+        # 임시 파일 정리
+        for f in temp_files:
+            try:
+                if os.path.exists(f):
+                    os.remove(f)
+                    logger.debug(f"[영상 생성] 임시 파일 삭제: {f}")
+            except:
+                pass
+
+        if db:
+            db.close()

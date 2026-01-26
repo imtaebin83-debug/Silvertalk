@@ -10,8 +10,10 @@ from datetime import datetime
 import uuid
 from celery import Celery
 
+from sqlalchemy import func
+
 from common.database import get_db
-from common.models import User, UserPhoto, ChatSession, ChatLog, SessionStatus
+from common.models import User, UserPhoto, ChatSession, ChatLog, SessionStatus, SessionPhoto
 
 # Celery 앱 초기화 (Worker tasks 참조용)
 celery_app = Celery(
@@ -90,11 +92,20 @@ async def start_chat_session(
         status=SessionStatus.ACTIVE
     )
     db.add(session)
-    
+    db.flush()  # session.id 확보
+
+    # SessionPhoto에 메인 사진 추가 (display_order=1)
+    session_photo = SessionPhoto(
+        session_id=session.id,
+        photo_id=photo.id,
+        display_order=1
+    )
+    db.add(session_photo)
+
     # 사진 조회수 증가
     photo.view_count += 1
     photo.last_chat_session_id = session.id
-    
+
     db.commit()
     db.refresh(session)
     
@@ -146,7 +157,7 @@ async def get_next_photos(
                 UserPhoto.id != main_photo.id if main_photo else True
             )
             .order_by(func.random())
-            .limit(6)
+            .limit(4)
             .all()
         )
     
@@ -168,13 +179,13 @@ async def get_next_photos(
                 func.extract('epoch', main_photo.taken_at)
             )
         )
-        .limit(6)
+        .limit(4)
         .all()
     )
     
     # 연관 사진이 부족하면 랜덤 추가
-    if len(related_photos) < 6:
-        remaining = 6 - len(related_photos)
+    if len(related_photos) < 4:
+        remaining = 4 - len(related_photos)
         random_photos = (
             db.query(UserPhoto)
             .filter(
@@ -478,3 +489,120 @@ async def delete_chat_session(
     db.commit()
     
     return {"message": "대화 기록이 삭제되었습니다."}
+
+
+# ============================================================
+# 세션에 사진 추가
+# ============================================================
+@router.post("/sessions/{session_id}/photos", summary="세션에 사진 추가")
+async def add_photo_to_session(
+    session_id: str,
+    photo_id: str,
+    db: Session = Depends(get_db)
+):
+    """
+    대화 중 관련 사진을 세션에 추가
+
+    - 사용자가 연관 사진 추천에서 사진을 선택하면 호출
+    - 슬라이드쇼 영상 생성 시 이 사진들이 순서대로 사용됨
+    """
+    session = db.query(ChatSession).filter(
+        ChatSession.id == uuid.UUID(session_id)
+    ).first()
+
+    if not session:
+        raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
+
+    photo = db.query(UserPhoto).filter(
+        UserPhoto.id == uuid.UUID(photo_id)
+    ).first()
+
+    if not photo:
+        raise HTTPException(status_code=404, detail="사진을 찾을 수 없습니다.")
+
+    if photo.user_id != session.user_id:
+        raise HTTPException(status_code=403, detail="권한이 없습니다.")
+
+    # 이미 추가된 사진인지 확인
+    existing = db.query(SessionPhoto).filter(
+        SessionPhoto.session_id == session.id,
+        SessionPhoto.photo_id == photo.id
+    ).first()
+
+    if existing:
+        return {
+            "message": "이미 추가된 사진입니다.",
+            "session_id": session_id,
+            "photo_id": photo_id,
+            "display_order": existing.display_order
+        }
+
+    # 다음 순서 번호 조회
+    max_order = db.query(func.max(SessionPhoto.display_order)).filter(
+        SessionPhoto.session_id == session.id
+    ).scalar() or 0
+
+    # 사진 추가
+    session_photo = SessionPhoto(
+        session_id=session.id,
+        photo_id=photo.id,
+        display_order=max_order + 1
+    )
+    db.add(session_photo)
+
+    # 사진 조회수 증가
+    photo.view_count += 1
+
+    db.commit()
+
+    return {
+        "message": "사진이 추가되었습니다.",
+        "session_id": session_id,
+        "photo_id": photo_id,
+        "display_order": session_photo.display_order
+    }
+
+
+# ============================================================
+# 세션 사진 목록 조회
+# ============================================================
+@router.get("/sessions/{session_id}/photos", summary="세션 사진 목록 조회")
+async def get_session_photos(
+    session_id: str,
+    db: Session = Depends(get_db)
+):
+    """
+    세션에 사용된 모든 사진 목록 (순서대로)
+
+    - 영상 생성 미리보기에 사용
+    - display_order 순서로 슬라이드쇼 생성됨
+    """
+    session = db.query(ChatSession).filter(
+        ChatSession.id == uuid.UUID(session_id)
+    ).first()
+
+    if not session:
+        raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
+
+    session_photos = (
+        db.query(SessionPhoto)
+        .filter(SessionPhoto.session_id == session.id)
+        .order_by(SessionPhoto.display_order)
+        .all()
+    )
+
+    return {
+        "session_id": session_id,
+        "photo_count": len(session_photos),
+        "photos": [
+            {
+                "id": str(sp.photo_id),
+                "display_order": sp.display_order,
+                "local_uri": sp.photo.local_uri,
+                "s3_url": sp.photo.s3_url,
+                "taken_at": sp.photo.taken_at.isoformat() if sp.photo.taken_at else None,
+                "added_at": sp.added_at.isoformat() if sp.added_at else None
+            }
+            for sp in session_photos
+        ]
+    }

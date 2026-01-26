@@ -53,7 +53,15 @@ COPY pyproject.toml ./
 
 # Worker용 모든 의존성 설치 (AI 모델, PyTorch 포함)
 # --no-root: 루트 패키지 설치 안함 (소스 코드 복사 전)
-RUN poetry install --no-dev --with ai-models,pytorch --no-root
+# 1. Poetry로 나머지 의존성을 먼저 설치 (torch 관련 그룹은 제외)
+RUN poetry install --no-dev --without pytorch --no-root
+
+# 2. 맥북(로컬) 환경을 위해 CPU 전용 torch를 pip으로 강제 설치
+# 이 과정이 torch 모듈을 확실하게 시스템 경로에 넣어줍니다.
+RUN pip install torch==2.1.2 torchaudio==2.1.2 --index-url https://download.pytorch.org/whl/cpu
+
+# 3. 그 후 나머지 AI 모델 그룹 설치 시도
+RUN poetry install --no-dev --with ai-models --no-root
 
 # 애플리케이션 코드 복사
 COPY . /app

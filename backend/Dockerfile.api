@@ -9,10 +9,11 @@ FROM python:3.10-slim
 # 작업 디렉토리 설정
 WORKDIR /app
 
-# 시스템 종속성 설치 (PostgreSQL 드라이버용)
+# 시스템 종속성 설치 (PostgreSQL 드라이버, FFmpeg)
 RUN apt-get update && apt-get install -y \
     libpq-dev \
     gcc \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # Poetry 설치
