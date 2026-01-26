@@ -14,7 +14,7 @@ TTS==0.21.3  # Coqui XTTS v2 (안정적 버전)
 google-generativeai==0.3.2
 
 # Audio/Video Processing
-av==11.0.0  # PyAV: FFmpeg 개발 라이브러리 필요 (libavdevice-dev 등)
+av==10.0.0  # PyAV: FFmpeg 4.x 호환 버전
 ffmpeg-python==0.2.0
 pydub==0.25.1
 soundfile==0.12.1
