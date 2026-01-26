@@ -3,6 +3,7 @@
 - AI 모델(Replicate Flux 등)에 이미지를 전달하기 전 전처리
 """
 from io import BytesIO
+from typing import Tuple, Dict, Any  # Python 3.8 호환
 from PIL import Image
 
 
@@ -102,7 +103,7 @@ def preprocess_image_for_ai(
         raise ImageProcessingError(f"이미지 처리 중 오류 발생: {str(e)}")
 
 
-def get_image_info(image_bytes: bytes) -> dict:
+def get_image_info(image_bytes: bytes) -> Dict[str, Any]:
     """
     이미지 정보 조회 (디버깅/로깅용)
 
@@ -131,7 +132,7 @@ def get_image_info(image_bytes: bytes) -> dict:
         return {"error": "이미지 정보를 읽을 수 없습니다."}
 
 
-def validate_image(image_bytes: bytes, max_size_mb: float = 20.0) -> tuple[bool, str]:
+def validate_image(image_bytes: bytes, max_size_mb: float = 20.0) -> Tuple[bool, str]:
     """
     이미지 유효성 검사
 
