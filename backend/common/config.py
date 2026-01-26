@@ -3,6 +3,7 @@
 """
 import os
 from pydantic_settings import BaseSettings
+from pydantic import ConfigDict
 from dotenv import load_dotenv
 
 # 환경 변수 로드
@@ -74,8 +75,10 @@ class Settings(BaseSettings):
     DATA_DIR: str = "/app/data"
     MODELS_DIR: str = "/app/models"
     
-    class Config:
-        env_file = ".env"
+    model_config = ConfigDict(
+        env_file=".env",
+        extra='ignore'  # 정의되지 않은 환경 변수 무시
+    )
 
 
 # 전역 설정 인스턴스
