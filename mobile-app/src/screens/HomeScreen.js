@@ -1,53 +1,29 @@
 /**
  * 홈 화면
  * 설계도 1번: 좌상단 대화기록/추억극장 버튼, 우상단 프로필, 중앙 캐릭터+말풍선
+ * Rive 애니메이션을 배경으로 사용
  */
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
-  Image,
-  Animated,
   SafeAreaView,
   StatusBar,
 } from 'react-native';
+import Rive, { Fit, Alignment } from 'rive-react-native';
 
 const HomeScreen = ({ navigation }) => {
   const [greeting, setGreeting] = useState('');
-  const [dogAnimation] = useState(new Animated.Value(0));
+  const riveRef = useRef(null);
 
   useEffect(() => {
-    // 강아지 좌우 흔들리는 애니메이션
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(dogAnimation, {
-          toValue: 1,
-          duration: 500,
-          useNativeDriver: true,
-        }),
-        Animated.timing(dogAnimation, {
-          toValue: -1,
-          duration: 500,
-          useNativeDriver: true,
-        }),
-        Animated.timing(dogAnimation, {
-          toValue: 0,
-          duration: 500,
-          useNativeDriver: true,
-        }),
-      ])
-    ).start();
-
     fetchGreeting();
   }, []);
 
   const fetchGreeting = async () => {
     try {
-      // API 호출 (추후 구현)
-      // const response = await axios.get('http://localhost:8000/home/greeting?kakao_id=test');
-      // setGreeting(response.data.message);
       setGreeting('할머니, 오셨어요? 복실이가 심심했어요! 놀아주세요~');
     } catch (error) {
       console.error('인사 메시지 불러오기 실패:', error);
@@ -55,81 +31,101 @@ const HomeScreen = ({ navigation }) => {
     }
   };
 
-  const wobble = dogAnimation.interpolate({
-    inputRange: [-1, 0, 1],
-    outputRange: ['-5deg', '0deg', '5deg'],
-  });
-
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="#FFF8DC" />
+    <View style={styles.container}>
+      {/* Rive 배경 - 전체 화면에 움직이는 강아지 (터치 이벤트 통과) */}
+      <View style={StyleSheet.absoluteFillObject} pointerEvents="none">
+        <Rive
+          ref={riveRef}
+          resourceName="dog2"
+          autoplay={true}
+          fit={Fit.Cover}
+          alignment={Alignment.Center}
+          style={StyleSheet.absoluteFillObject}
+        />
+      </View>
 
-      {/* 상단 버튼 영역 */}
-      <View style={styles.topBar}>
-        {/* 좌상단: 대화기록 + 추억극장 버튼 */}
-        <View style={styles.leftButtons}>
-          <TouchableOpacity
-            style={styles.topButton}
-            onPress={() => navigation.navigate('ChatHistory')}
-          >
-            <Text style={styles.topButtonText}>대화{'\n'}기록</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.topButton}
-            onPress={() => navigation.navigate('VideoGallery')}
-          >
-            <Text style={styles.topButtonText}>추억{'\n'}극장</Text>
-          </TouchableOpacity>
-        </View>
+      {/* 강아지 터치 영역 - 화면 중앙 하단 */}
+      <TouchableOpacity
+        style={styles.dogTouchArea}
+        onPress={() => navigation.navigate('Gallery')}
+        activeOpacity={0.8}
+      />
 
-        {/* 우상단: 프로필 버튼 */}
-        <TouchableOpacity
-          style={styles.profileButton}
-          onPress={() => navigation.navigate('Profile')}
-        >
-          <View style={styles.profileIcon}>
-            <Text style={styles.profileIconText}>👤</Text>
+      {/* 그 위에 UI 컴포넌트들 */}
+      <SafeAreaView style={styles.overlay} pointerEvents="box-none">
+        <StatusBar barStyle="dark-content" translucent backgroundColor="transparent" />
+
+        {/* 상단 버튼 영역 */}
+        <View style={styles.topBar}>
+          {/* 좌상단: 대화기록 + 추억극장 버튼 */}
+          <View style={styles.leftButtons}>
+            <TouchableOpacity
+              style={styles.topButton}
+              onPress={() => navigation.navigate('ChatHistory')}
+            >
+              <Text style={styles.topButtonText}>대화{'\n'}기록</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.topButton}
+              onPress={() => navigation.navigate('VideoGallery')}
+            >
+              <Text style={styles.topButtonText}>추억{'\n'}극장</Text>
+            </TouchableOpacity>
           </View>
-        </TouchableOpacity>
-      </View>
 
-      {/* 중앙 컨텐츠 영역 */}
-      <View style={styles.centerContent}>
-        {/* 말풍선 */}
-        <View style={styles.speechBubble}>
-          <Text style={styles.greetingText}>{greeting}</Text>
-          <View style={styles.speechBubbleTail} />
+          {/* 우상단: 프로필 버튼 */}
+          <TouchableOpacity
+            style={styles.profileButton}
+            onPress={() => navigation.navigate('Profile')}
+          >
+            <View style={styles.profileIcon}>
+              <Text style={styles.profileIconText}>👤</Text>
+            </View>
+          </TouchableOpacity>
         </View>
 
-        {/* 강아지 캐릭터 (터치하면 Gallery로 이동) */}
-        <TouchableOpacity
-          onPress={() => navigation.navigate('Gallery')}
-          activeOpacity={0.8}
-        >
-          <Animated.Image
-            source={require('../../assets/dog.png')}
-            style={[
-              styles.dogImage,
-              { transform: [{ rotate: wobble }] }
-            ]}
-            resizeMode="contain"
-          />
-        </TouchableOpacity>
-
-        {/* 캐릭터 설명 */}
-        <View style={styles.characterLabel}>
-          <Text style={styles.characterLabelText}>복실이</Text>
-          <Text style={styles.characterSubLabel}>터치해서 대화 시작!</Text>
+        {/* 중앙 컨텐츠 영역 */}
+        <View style={styles.centerContent} pointerEvents="box-none">
+          {/* 말풍선 */}
+          <TouchableOpacity
+            onPress={() => navigation.navigate('Gallery')}
+            activeOpacity={0.8}
+          >
+            <View style={styles.speechBubble}>
+              <Text style={styles.greetingText}>{greeting}</Text>
+              <View style={styles.speechBubbleTail} />
+            </View>
+          </TouchableOpacity>
         </View>
-      </View>
-    </SafeAreaView>
+
+        {/* 하단 캐릭터 설명 */}
+        <View style={styles.bottomContent} pointerEvents="box-none">
+          <View style={styles.characterLabel}>
+            <Text style={styles.characterLabelText}>복실이</Text>
+            <Text style={styles.characterSubLabel}>터치해서 대화 시작!</Text>
+          </View>
+        </View>
+      </SafeAreaView>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFF8DC',
+  },
+  dogTouchArea: {
+    position: 'absolute',
+    bottom: 100,
+    left: '15%',
+    right: '15%',
+    height: '40%',
+    // 디버깅용 (확인 후 제거)
+    // backgroundColor: 'rgba(255, 0, 0, 0.2)',
+  },
+  overlay: {
+    flex: 1,
   },
   topBar: {
     flexDirection: 'row',
@@ -143,7 +139,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   topButton: {
-    backgroundColor: '#FFD700',
+    backgroundColor: 'rgba(255, 215, 0, 0.9)',
     borderRadius: 12,
     paddingVertical: 12,
     paddingHorizontal: 16,
@@ -167,7 +163,7 @@ const styles = StyleSheet.create({
     width: 50,
     height: 50,
     borderRadius: 25,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000',
@@ -181,15 +177,15 @@ const styles = StyleSheet.create({
   },
   centerContent: {
     flex: 1,
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
     alignItems: 'center',
     paddingHorizontal: 20,
+    paddingTop: 40,
   },
   speechBubble: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
     borderRadius: 20,
     padding: 20,
-    marginBottom: 20,
     maxWidth: '85%',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -210,7 +206,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 10,
     borderLeftColor: 'transparent',
     borderRightColor: 'transparent',
-    borderTopColor: '#FFFFFF',
+    borderTopColor: 'rgba(255, 255, 255, 0.95)',
   },
   greetingText: {
     fontSize: 22,
@@ -218,13 +214,16 @@ const styles = StyleSheet.create({
     color: '#333',
     lineHeight: 32,
   },
-  dogImage: {
-    width: 250,
-    height: 250,
+  bottomContent: {
+    paddingBottom: 30,
+    alignItems: 'center',
   },
   characterLabel: {
-    marginTop: 15,
     alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 15,
   },
   characterLabelText: {
     fontSize: 24,
@@ -233,7 +232,7 @@ const styles = StyleSheet.create({
   },
   characterSubLabel: {
     fontSize: 16,
-    color: '#888',
+    color: '#666',
     marginTop: 5,
   },
 });

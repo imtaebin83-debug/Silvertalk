@@ -13,7 +13,8 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.silvertalk.app"
+      "bundleIdentifier": "com.silvertalk.app",
+      "deploymentTarget": "14.0"
     },
     "android": {
       "adaptiveIcon": {
