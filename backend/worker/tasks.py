@@ -8,23 +8,36 @@ import logging
 from celery import Task
 from worker.celery_app import celery_app
 from common.config import settings
-import torch
+
+# .env 파일 명시적 로드
+from dotenv import load_dotenv
+load_dotenv()
 
 # 로깅 설정
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # ============================================================
-# 동적 디바이스 감지
+# 동적 디바이스 감지 (Lazy 초기화)
 # ============================================================
+_device_cache = None
+
 def detect_device():
     """
     실행 환경에 따라 자동으로 디바이스 선택
+    Worker fork 이후에 호출되어야 CUDA 충돌 방지
     
     Returns:
-        device (str): "cuda" 또는 "cpu"
-        compute_type (str): "float16" (GPU) 또는 "int8" (CPU)
+        tuple: (device, compute_type)
     """
+    global _device_cache
+    
+    if _device_cache is not None:
+        return _device_cache
+    
+    # torch는 함수 내부에서 import (Worker fork 이후)
+    import torch
+    
     if torch.cuda.is_available():
         device = "cuda"
         compute_type = "float16"
@@ -33,13 +46,10 @@ def detect_device():
     else:
         device = "cpu"
         compute_type = "int8"
-        logger.info("💻 GPU 미감지 - CPU 모드로 실행 (로컬 개발 환경)")
+        logger.info("💻 GPU 미감지 - CPU 모드로 실행")
     
-    return device, compute_type
-
-
-# 전역 디바이스 설정
-DEVICE, COMPUTE_TYPE = detect_device()
+    _device_cache = (device, compute_type)
+    return _device_cache
 
 # ============================================================
 # AI 모델 전역 변수 (워커 시작 시 한 번만 로드)
