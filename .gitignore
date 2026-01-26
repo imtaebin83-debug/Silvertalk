@@ -41,6 +41,9 @@ backend/models/
 .env.local
 .env.*.local
 *.env
+.env.ec2
+.env.runpod
+.env.production
 
 # IDE
 .vscode/

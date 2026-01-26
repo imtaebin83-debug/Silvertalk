@@ -2,20 +2,13 @@
 Celery 앱 설정 및 초기화
 """
 from celery import Celery
-import os
-from dotenv import load_dotenv
+from common.config import settings
 
-# 환경 변수 로드
-load_dotenv()
-
-# Redis URL 설정
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-
-# Celery 앱 생성
+# Celery 앱 생성 (settings.redis_url은 DEPLOYMENT_MODE에 따라 동적 선택)
 celery_app = Celery(
     "silvertalk_worker",
-    broker=REDIS_URL,
-    backend=REDIS_URL,
+    broker=settings.redis_url,
+    backend=settings.redis_url,
     include=["worker.tasks"]  # 태스크 모듈 자동 로드
 )
 
