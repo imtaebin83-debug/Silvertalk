@@ -1,8 +1,8 @@
 # ============================================================
-# SilverTalk Worker Dockerfile - RunPod Production
+# SilverTalk Worker Dockerfile - RunPod GPU Production
 # ============================================================
-# 용도: RunPod GPU 환경 전용
-# 기존 Dockerfile.worker와 동일하되 GPU 최적화
+# 용도: RunPod GPU 환경 전용 (AI 모델 로딩)
+# 실행 환경: RunPod NVIDIA GPU (RTX 4090 등)
 # ============================================================
 
 FROM pytorch/pytorch:2.1.2-cuda11.8-cudnn8-runtime
@@ -10,11 +10,13 @@ FROM pytorch/pytorch:2.1.2-cuda11.8-cudnn8-runtime
 # 작업 디렉토리
 WORKDIR /app
 
-# 시스템 종속성 (최소화)
+# 시스템 종속성
 RUN apt-get update && apt-get install -y \
     git \
     libsndfile1 \
     ffmpeg \
+    libpq-dev \
+    gcc \
     # PyAV 빌드용 FFmpeg 개발 라이브러리
     libavformat-dev \
     libavcodec-dev \
@@ -25,7 +27,7 @@ RUN apt-get update && apt-get install -y \
     libavfilter-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Python 패키지 설치 (requirements.txt 방식)
+# Python 패키지 설치 (전체 AI 모델 포함)
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
@@ -35,9 +37,15 @@ COPY . /app
 # 모델 디렉토리 생성
 RUN mkdir -p /app/models
 
-# 환경 변수 (RunPod에서 GPU 사용)
+# 환경 변수 설정
 ENV PYTHONUNBUFFERED=1
+ENV DEPLOYMENT_MODE=CLOUD
+ENV ENVIRONMENT=production
+ENV MODELS_ROOT=/app/models
 ENV CUDA_VISIBLE_DEVICES=0
 
-# Celery Worker 실행
-CMD ["celery", "-A", "worker.celery_app", "worker", "--loglevel=info", "--concurrency=2"]
+# ✅ Coqui TTS 라이선스 자동 동의 (필수!)
+ENV COQUI_TOS_AGREED=1
+
+# Celery Worker 실행 (--include=worker.tasks 필수!)
+CMD ["celery", "-A", "worker.celery_app", "worker", "--loglevel=info", "--concurrency=2", "--include=worker.tasks"]

@@ -1,0 +1,73 @@
+# ============================================================
+# Docker Compose - 로컬 테스트 환경
+# ============================================================
+# 용도: 전체 스택 로컬 테스트 (API + Worker + Redis)
+# 사용법: docker-compose -f docker-compose.test.yml up
+# ============================================================
+
+version: '3.8'
+
+services:
+  # Redis (로컬)
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # FastAPI 서버
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.api
+    ports:
+      - "8000:8000"
+    environment:
+      - DEPLOYMENT_MODE=LOCAL
+      - ENVIRONMENT=development
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      # 로컬 테스트용 (실제 값은 .env 파일 사용)
+      - DATABASE_URL=postgresql://user:pass@localhost:5432/silvertalk
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - REPLICATE_API_TOKEN=${REPLICATE_API_TOKEN}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-test_secret_key}
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - ./backend/data:/app/data
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # Celery Worker (CPU 모드)
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.worker
+    environment:
+      - DEPLOYMENT_MODE=LOCAL
+      - ENVIRONMENT=development
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - MODELS_ROOT=/app/models
+      - COQUI_TOS_AGREED=1
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - ./backend/models:/app/models
+      - ./backend/data:/app/data
+    command: celery -A worker.celery_app worker --loglevel=info --concurrency=2 --include=worker.tasks
+
+volumes:
+  models:
+  data:

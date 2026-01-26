@@ -1,15 +1,9 @@
 # ============================================================
-# SilverTalk AI Worker Dockerfile (Poetry)
+# SilverTalk AI Worker Dockerfile - CPU/로컬 개발용
 # ============================================================
-# 용도: Celery Worker (AI 모델 실행) - Poetry 의존성 관리
-# 환경 지원:
-#   - 로컬: CPU 모드 (Windows/Mac)
-#   - 프로덕션: GPU 모드 (AWS g4dn.xlarge, NVIDIA T4)
-# ============================================================
-# 베이스: python:3.10-slim-bookworm (Debian Bookworm 고정)
-# - Bookworm의 FFmpeg 5.1.x 사용 (av 11.0 소스 빌드 호환)
-# - python:3.10-slim 기본이 Debian Trixie 등이면 FFmpeg 7 포함 → PyAV 11 빌드 실패
-#   (AVFrame.channel_layout 제거는 FFmpeg 7부터)
+# 용도: CPU 환경 Celery Worker (로컬 테스트/개발)
+# 베이스: python:3.10-slim-bookworm (Debian Bookworm, FFmpeg 5.1.x)
+# ⚠️ 프로덕션 배포는 Dockerfile.runpod 사용 (GPU)
 # ============================================================
 
 FROM python:3.10-slim-bookworm
@@ -17,17 +11,15 @@ FROM python:3.10-slim-bookworm
 # 작업 디렉토리 설정
 WORKDIR /app
 
-# 시스템 종속성 설치 (PyAV 빌드를 위해 확장)
+# 시스템 종속성 설치
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     git \
     libsndfile1 \
     build-essential \
-    wget \
-    pkg-config \
-    # PostgreSQL 드라이버
     libpq-dev \
-    # FFmpeg 개발 라이브러리
+    gcc \
+    # FFmpeg 개발 라이브러리 (PyAV 빌드용)
     libavformat-dev \
     libavcodec-dev \
     libavdevice-dev \
@@ -35,25 +27,11 @@ RUN apt-get update && apt-get install -y \
     libswscale-dev \
     libswresample-dev \
     libavfilter-dev \
-    # PyAV 빌드에 추가로 필요한 라이브러리
-    yasm \
-    nasm \
-    # Python 개발 헤더
-    python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Poetry 설치
-RUN pip install --no-cache-dir poetry==1.7.1
-
-# Poetry 설정: 가상환경을 생성하지 않고 시스템에 직접 설치
-RUN poetry config virtualenvs.create false
-
-# Poetry 의존성 파일 복사
-COPY pyproject.toml ./
-
-# Worker용 모든 의존성 설치 (AI 모델, PyTorch 포함)
-# --no-root: 루트 패키지 설치 안함 (소스 코드 복사 전)
-RUN poetry install --no-dev --with ai-models,pytorch --no-root
+# Python 패키지 설치 (전체 requirements.txt)
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
 # 애플리케이션 코드 복사
 COPY . /app
@@ -63,13 +41,12 @@ RUN mkdir -p /app/models
 
 # 환경 변수 설정
 ENV PYTHONUNBUFFERED=1
-ENV CELERY_BROKER_URL=redis://redis:6379/0
-ENV CELERY_RESULT_BACKEND=redis://redis:6379/0
+ENV DEPLOYMENT_MODE=LOCAL
+ENV ENVIRONMENT=development
+ENV MODELS_ROOT=/app/models
 
-# PyAV/FFmpeg 호환성을 위한 환경 변수
-ENV FFMPEG_DATADIR=/usr/share/ffmpeg
-ENV PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig
-ENV AV_LOG_LEVEL=40
+# ✅ Coqui TTS 라이선스 자동 동의
+ENV COQUI_TOS_AGREED=1
 
-# Celery Worker 실행
-CMD ["celery", "-A", "worker.celery_app", "worker", "--loglevel=info", "--concurrency=2"]
+# Celery Worker 실행 (--include 필수)
+CMD ["celery", "-A", "worker.celery_app", "worker", "--loglevel=info", "--concurrency=2", "--include=worker.tasks"]
