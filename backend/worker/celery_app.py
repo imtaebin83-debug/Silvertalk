@@ -28,11 +28,6 @@ celery_app.conf.update(
     # 결과 저장 설정
     result_expires=3600,  # 1시간 후 결과 삭제
     
-    # 라우팅
-    task_routes={
-        "worker.tasks.*": {"queue": "ai_tasks"},
-    },
-    
     # 타임아웃 설정 (AI 모델 로딩 시간 고려)
     task_time_limit=600,  # 10분
     task_soft_time_limit=540,  # 9분

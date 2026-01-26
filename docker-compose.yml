@@ -111,6 +111,8 @@ services:
       context: ./backend
       dockerfile: Dockerfile.api
     container_name: silvertalk-flower
+    # Flower 실행 명령어로 덮어씌움
+    command: celery -A worker.tasks flower --port=5555
     ports:
       - "5555:5555"
     environment:
