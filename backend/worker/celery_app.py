@@ -8,8 +8,7 @@ from common.config import settings
 celery_app = Celery(
     "silvertalk_worker",
     broker=settings.redis_url,
-    backend=settings.redis_url,
-    include=["worker.tasks"]  # 태스크 모듈 자동 로드
+    backend=settings.redis_url
 )
 
 # Celery 설정
