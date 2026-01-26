@@ -7,6 +7,7 @@ import os
 import logging
 from celery import Task
 from worker.celery_app import celery_app
+from common.config import settings
 import torch
 
 # 로깅 설정
@@ -66,13 +67,17 @@ def load_models():
         try:
             from faster_whisper import WhisperModel
             
+            # 환경별 모델 경로 자동 설정
+            whisper_root = os.path.join(settings.models_root, "whisper")
+            os.makedirs(whisper_root, exist_ok=True)
+            
             whisper_model = WhisperModel(
                 model_size_or_path="large-v3",  # 한국어 성능 최상
                 device=DEVICE,
                 compute_type=COMPUTE_TYPE,
-                download_root="/app/models/whisper"
+                download_root=whisper_root
             )
-            logger.info(f"✅ Whisper 모델 로딩 완료 (device={DEVICE}, compute_type={COMPUTE_TYPE})")
+            logger.info(f"✅ Whisper 모델 로딩 완료 (device={DEVICE}, path={whisper_root})")
         except Exception as e:
             logger.error(f"❌ Whisper 로딩 실패: {str(e)}")
             whisper_model = None

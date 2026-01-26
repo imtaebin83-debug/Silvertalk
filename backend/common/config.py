@@ -44,6 +44,22 @@ class Settings(BaseSettings):
     # 저장소 백엔드 (LOCAL: 로컬 파일, S3: AWS S3)
     STORAGE_BACKEND: str = os.getenv("STORAGE_BACKEND", "LOCAL")
     
+    # 모델 저장 경로 (배포 환경별 자동 설정)
+    @property
+    def models_root(self) -> str:
+        """AI 모델 다운로드 루트 디렉토리"""
+        if self.DEPLOYMENT_MODE == "CLOUD":
+            # RunPod (Docker): /app/models
+            # EC2 (베어메탈): ~/Silvertalk/backend/models
+            base_path = os.getenv("MODELS_ROOT", "/app/models")
+        else:
+            # 로컬 개발: backend/models
+            base_path = os.path.join(os.path.dirname(__file__), "..", "models")
+        
+        # 디렉토리 자동 생성
+        os.makedirs(base_path, exist_ok=True)
+        return os.path.abspath(base_path)
+    
     # 데이터베이스
     # TODO: 환경 변수 설정 
     @property
