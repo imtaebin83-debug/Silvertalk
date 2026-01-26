@@ -12,12 +12,14 @@ from celery import Celery
 
 from common.database import get_db
 from common.models import User, UserPhoto, ChatSession, ChatLog, SessionStatus
+from common.config import settings
 
-# Celery 앱 초기화 (Worker tasks 참조용)
+# Celery 앱 초기화 (Producer용 - Worker tasks 참조만)
+# settings.redis_url은 DEPLOYMENT_MODE에 따라 Upstash/Local 자동 선택
 celery_app = Celery(
     "silvertalk_worker",
-    broker="redis://redis:6379/0",
-    backend="redis://redis:6379/0"
+    broker=settings.redis_url,
+    backend=settings.redis_url
 )
 
 router = APIRouter(prefix="/chat", tags=["대화 서비스 (Chat & Memory)"])

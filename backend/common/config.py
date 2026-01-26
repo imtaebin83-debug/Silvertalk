@@ -63,6 +63,7 @@ class Settings(BaseSettings):
 
     # 카카오 OAuth
     KAKAO_CLIENT_ID: str = os.getenv("KAKAO_CLIENT_ID", "")
+    KAKAO_REDIRECT_URI: str = os.getenv("KAKAO_REDIRECT_URI", "http://localhost:8000/auth/kakao/callback")
 
     # JWT 설정
     JWT_SECRET_KEY: str = os.getenv("JWT_SECRET_KEY", "your-secret-key-change-in-production")
