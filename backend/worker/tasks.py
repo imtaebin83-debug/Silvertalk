@@ -188,10 +188,10 @@ def load_models():
                 raise ValueError("GEMINI_API_KEY 환경 변수가 설정되지 않았습니다.")
             
             genai.configure(api_key=api_key)
-            # gemini-1.5-flash (안정 버전, quota 여유)
+            # gemini-2.0-flash (최신 버전, quota 제한 주의)
             # gemini-2.0-flash-exp (실험 버전, quota 제한 심함)
-            gemini_model = genai.GenerativeModel("gemini-1.5-flash")
-            logger.info("✅ Gemini 1.5 Flash 초기화 완료")
+            gemini_model = genai.GenerativeModel("gemini-2.0-flash")
+            logger.info("✅ Gemini 2.0 Flash 초기화 완료")
         except Exception as e:
             logger.error(f"❌ Gemini 초기화 실패: {str(e)}")
             logger.error(traceback.format_exc())
