@@ -8,7 +8,6 @@ from pydantic import BaseModel
 from typing import List, Optional
 from datetime import datetime
 import uuid
-from celery import Celery
 
 from sqlalchemy import func
 
@@ -16,23 +15,8 @@ from common.database import get_db
 from common.models import User, UserPhoto, ChatSession, ChatLog, SessionStatus, SessionPhoto
 from common.config import settings
 
-# Celery 앱 초기화 (Producer용 - Worker tasks 참조만)
-# settings.redis_url은 DEPLOYMENT_MODE에 따라 Upstash/Local 자동 선택
-celery_app = Celery(
-    "silvertalk_worker",
-    broker=settings.redis_url,
-    backend=settings.redis_url
-)
-
-# ai_tasks queue 설정 (RunPod worker와 일치해야 함)
-from kombu import Queue, Exchange
-celery_app.conf.task_queues = (
-    Queue('celery', Exchange('celery'), routing_key='celery'),
-    Queue('ai_tasks', Exchange('ai_tasks', type='direct'), routing_key='ai_tasks'),
-)
-celery_app.conf.task_default_queue = 'celery'
-celery_app.conf.task_default_exchange = 'celery'
-celery_app.conf.task_default_routing_key = 'celery'
+# Worker의 Celery 앱 사용 (EC2와 RunPod 간 설정 일치)
+from worker.celery_app import celery_app
 
 router = APIRouter(prefix="/chat", tags=["대화 서비스 (Chat & Memory)"])
 
@@ -538,11 +522,11 @@ async def finish_session(
     
     # 영상 생성 요청
     if create_video:
-        # ✅ EC2에서는 send_task()로 태스크 이름만 전달
-        from worker.celery_app import celery_app
+        # Celery 태스크 실행 (이미 import된 celery_app 사용)
         task = celery_app.send_task(
             'worker.tasks.generate_memory_video',
-            args=[str(session.id)]
+            args=[str(session.id)],
+            queue="ai_tasks"
         )
         
         return {
