@@ -61,17 +61,20 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo "⚡ [2/8] CUDA 핵심 라이브러리"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-echo -n "🔹 libcublas.so.12: "
-if ldconfig -p | grep -q "libcublas.so.12"; then
+# libcublas 체크 (CUDA 11.x 또는 12.x)
+echo -n "🔹 libcublas (v11 or v12): "
+if ldconfig -p | grep -qE "libcublas\.so\.(11|12)"; then
     check_status
-    ldconfig -p | grep libcublas.so.12 | head -1 | awk '{print "  └─", $NF}'
+    CUBLAS_VER=$(ldconfig -p | grep -E "libcublas\.so\.(11|12)" | head -1 | awk '{print $1, "=>", $NF}')
+    echo "  └─ $CUBLAS_VER"
 else
     check_status
+    echo -e "${RED}  ⚠️  libcublas.so.11 또는 .12 필요${NC}"
     ((FAIL_COUNT++))
 fi
 
-echo -n "🔹 libcublasLt.so.12: "
-if ldconfig -p | grep -q "libcublasLt.so.12"; then
+echo -n "🔹 libcublasLt (v11 or v12): "
+if ldconfig -p | grep -qE "libcublasLt\.so\.(11|12)"; then
     check_status
 else
     check_status
