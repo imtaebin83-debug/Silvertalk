@@ -9,11 +9,13 @@ from pydantic import BaseModel
 from typing import List, Optional
 from datetime import datetime
 import uuid
+from common.s3 import upload_file_to_s3 # 아까 만든 유틸리티
+from common.models import SessionPhoto
 
 from common.database import get_db
 from common.models import User, UserPhoto
 
-router = APIRouter(prefix="/photos", tags=["Gallery"])
+router = APIRouter(tags=["Gallery"])
 
 
 # ============================================================
@@ -44,6 +46,47 @@ class PhotoResponse(BaseModel):
     
     class Config:
         from_attributes = True
+        
+        
+        
+@router.post("/batch-upload", summary="세션용 사진 묶음 업로드")
+async def batch_upload_photos(
+    session_id: uuid.UUID,
+    files: List[UploadFile] = File(...),
+    db: Session = Depends(get_db)
+):
+    """
+    선택된 사진과 앞뒤 5장(총 11장)을 S3에 업로드하고 세션에 연결
+    """
+    uploaded_photos = []
+    
+    for index, file in enumerate(files):
+        # 1. S3 업로드용 파일명 생성
+        file_ext = file.filename.split(".")[-1]
+        s3_key = f"sessions/{session_id}/{index}_{uuid.uuid4()}.{file_ext}"
+        
+        # 2. S3 전송
+        s3_url = upload_file_to_s3(file.file, s3_key)
+        
+        if s3_url:
+            # 3. DB 저장 (순서는 -5부터 시작하도록 설정)
+            new_session_photo = SessionPhoto(
+                session_id=session_id,
+                s3_url=s3_url,
+                display_order=index - 5
+            )
+            db.add(new_session_photo)
+            uploaded_photos.append({"url": s3_url, "order": index - 5})
+            
+    db.commit()
+    return {"status": "success", "photos": uploaded_photos}
+
+# 404 에러 해결을 위해 경로 수정
+@router.get("/related", response_model=List[PhotoResponse])
+async def get_related_photos(session_id: uuid.UUID, db: Session = Depends(get_db)):
+    photos = db.query(SessionPhoto).filter(SessionPhoto.session_id == session_id).all()
+    # UserPhoto와 형식을 맞추기 위해 변환하여 반환
+    return [{"id": str(p.id), "url": p.s3_url, "order": p.display_order} for p in photos]
 
 
 # ============================================================
@@ -178,3 +221,5 @@ async def refresh_photos(
     사용자가 '다른 사진 보기' 클릭 시 새로운 4장 제공
     """
     return await get_random_photos(kakao_id, limit, db)
+
+

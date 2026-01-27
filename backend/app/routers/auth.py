@@ -16,6 +16,19 @@ from common.auth import (
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
+@router.get("/kakao/callback")
+async def kakao_callback(code: str):
+    """
+    카카오 인증 서버가 인가 코드를 보내는 곳입니다.
+    현재 404 에러를 해결하기 위한 엔드포인트입니다.
+    """
+    print(f"✅ 서버가 받은 카카오 인가 코드: {code}")
+    return {
+        "status": "success",
+        "message": "카카오 인가 코드를 성공적으로 받았습니다!",
+        "code": code
+    }
+
 
 # ============================================================
 # 요청/응답 스키마
@@ -187,3 +200,6 @@ async def refresh_token(
     """
     new_token = create_access_token(data={"sub": str(user.id)})
     return TokenResponse(access_token=new_token)
+
+# app/routers/auth.py 파일 맨 아래에 추가
+

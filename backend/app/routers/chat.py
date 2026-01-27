@@ -30,16 +30,34 @@ router = APIRouter(prefix="/chat", tags=["대화 서비스 (Chat & Memory)"])
 # ============================================================
 # 스키마
 # ============================================================
+class CreateSessionRequest(BaseModel):
+    """세션 생성 요청"""
+    kakao_id: Optional[str] = None
+    photo_id: Optional[str] = None  # UserPhoto UUID 또는 로컬 asset ID
+
+
 class ChatSessionResponse(BaseModel):
     id: str
-    main_photo_id: Optional[str]
+    main_photo_id: Optional[str] = None
     turn_count: int
     is_completed: bool
     status: str
     created_at: datetime
-    
+
     class Config:
         from_attributes = True
+
+    @classmethod
+    def from_session(cls, session):
+        """ChatSession 모델을 응답 스키마로 변환"""
+        return cls(
+            id=str(session.id),
+            main_photo_id=str(session.main_photo_id) if session.main_photo_id else None,
+            turn_count=session.turn_count,
+            is_completed=session.is_completed,
+            status=session.status.value if hasattr(session.status, 'value') else str(session.status),
+            created_at=session.created_at
+        )
 
 
 class ChatLogResponse(BaseModel):
@@ -64,63 +82,69 @@ class AnimationResponse(BaseModel):
 # ============================================================
 @router.post("/sessions", response_model=ChatSessionResponse, summary="대화 세션 시작")
 async def start_chat_session(
-    kakao_id: str,
-    photo_id: str,
+    request: CreateSessionRequest,
     db: Session = Depends(get_db)
 ):
     """
     사용자가 사진 1장을 선택하면 대화 세션 시작
-    
+
     Flow:
-    1. ChatSession 생성
-    2. UserPhoto의 view_count 증가
-    3. Vision AI로 사진 분석 (백그라운드)
-    4. 강아지의 첫 질문 생성
+    1. kakao_id로 사용자 확인 (필수)
+    2. ChatSession 생성 (photo_id는 optional)
+    3. S3에 사진 업로드 후 batch-upload에서 SessionPhoto 추가
     """
-    user = db.query(User).filter(User.kakao_id == kakao_id).first()
-    
+    # kakao_id 필수 확인
+    if not request.kakao_id:
+        raise HTTPException(status_code=400, detail="kakao_id가 필요합니다.")
+
+    # 사용자 조회
+    user = db.query(User).filter(User.kakao_id == request.kakao_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
-    
-    photo = db.query(UserPhoto).filter(UserPhoto.id == uuid.UUID(photo_id)).first()
-    
-    if not photo or photo.user_id != user.id:
-        raise HTTPException(status_code=404, detail="사진을 찾을 수 없습니다.")
-    
+
+    # photo_id가 UUID 형식이면 UserPhoto 조회 (optional)
+    photo = None
+    if request.photo_id:
+        try:
+            photo_uuid = uuid.UUID(request.photo_id)
+            photo = db.query(UserPhoto).filter(UserPhoto.id == photo_uuid).first()
+        except ValueError:
+            # UUID가 아니면 무시 (로컬 asset ID일 수 있음)
+            pass
+
     # 새 세션 생성
     session = ChatSession(
         user_id=user.id,
-        main_photo_id=photo.id,
+        main_photo_id=photo.id if photo else None,
         status=SessionStatus.ACTIVE
     )
     db.add(session)
     db.flush()  # session.id 확보
 
-    # SessionPhoto에 메인 사진 추가 (display_order=1)
-    session_photo = SessionPhoto(
-        session_id=session.id,
-        photo_id=photo.id,
-        display_order=1
-    )
-    db.add(session_photo)
+    # photo가 있으면 SessionPhoto 추가 및 조회수 증가
+    if photo:
+        session_photo = SessionPhoto(
+            session_id=session.id,
+            photo_id=photo.id,
+            s3_url=photo.s3_url,  # nullable=True이므로 None 가능
+            display_order=0
+        )
+        db.add(session_photo)
+        photo.view_count += 1
+        photo.last_chat_session_id = session.id
 
-    # 사진 조회수 증가
-    photo.view_count += 1
-    photo.last_chat_session_id = session.id
+        # Vision AI 분석 (비동기) - s3_url이 있을 때만
+        if not photo.ai_analysis and photo.s3_url:
+            celery_app.send_task(
+                "worker.tasks.analyze_image",
+                args=[photo.s3_url, "이 사진에 대해 간단히 설명해주세요."],
+                queue="ai_tasks"
+            )
 
     db.commit()
     db.refresh(session)
-    
-    # Vision AI 분석 (비동기)
-    if not photo.ai_analysis:
-        # Celery 태스크 실행 (이름으로 호출)
-        celery_app.send_task(
-            "worker.tasks.analyze_image",
-            args=[photo.s3_url or "", "이 사진에 대해 간단히 설명해주세요."],
-            queue="ai_tasks"
-        )
-    
-    return session
+
+    return ChatSessionResponse.from_session(session)
 
 
 # ============================================================

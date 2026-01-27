@@ -157,8 +157,10 @@ class SessionPhoto(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     session_id = Column(UUID(as_uuid=True), ForeignKey("chat_sessions.id"), nullable=False)
-    photo_id = Column(UUID(as_uuid=True), ForeignKey("user_photos.id"), nullable=False)
+    photo_id = Column(UUID(as_uuid=True), ForeignKey("user_photos.id"), nullable=True)  # S3 직접 업로드 시 null 가능
 
+    s3_url = Column(Text, nullable=True)  # S3 업로드 전에는 null일 수 있음
+    
     # 표시 순서 (1 = 메인 사진, 2+ = 관련 사진)
     display_order = Column(Integer, nullable=False, default=1)
 

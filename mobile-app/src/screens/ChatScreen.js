@@ -33,21 +33,39 @@ import DogAnimation from '../components/DogAnimation';
 const { width } = Dimensions.get('window');
  
 const ChatScreen = ({ route, navigation }) => {
-  const { photoId, photoUrl, photoDate } = route.params;
- 
-  // 화면 꺼짐 방지
-  useKeepAwake();
- 
-  // === Custom Hooks ===
-  const voiceRecording = useVoiceRecording();
-  const chatSession = useChatSession({
-    onError: (error) => {
-      console.error('Chat Session Error:', error);
-    },
+  // GalleryScreen에서 전달받은 파라미터
+  const {
+    sessionId: initialSessionId,
+    photoUrl,
+    photoDate,
+    allPhotoUrls = [],  // S3에 업로드된 전체 사진 URL 배열
+    mainPhotoIndex = 0  // 선택한 메인 사진의 인덱스
+  } = route.params;
+
+  // 디버그 로그
+  console.log('📸 ChatScreen params:', {
+    sessionId: initialSessionId,
+    photoUrl,
+    allPhotoUrls,
+    mainPhotoIndex,
+    allPhotoUrlsLength: allPhotoUrls?.length
   });
 
-  // === 연관 사진 네비게이션 ===
-  const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
+  // === 세션 상태 ===
+  const [sessionId, setSessionId] = useState(initialSessionId);
+  const [messages, setMessages] = useState([]);
+  const [turnCount, setTurnCount] = useState(0);
+  const [canFinish, setCanFinish] = useState(false);
+
+  // === 상태 머신 ===
+  const [chatState, setChatState] = useState(STATES.IDLE);
+  const [emotion, setEmotion] = useState('neutral');
+
+  // === 연관 사진 (S3 URL 사용) ===
+  const [relatedPhotos, setRelatedPhotos] = useState(
+    allPhotoUrls.map((url, idx) => ({ url, order: idx }))
+  );
+  const [currentPhotoIndex, setCurrentPhotoIndex] = useState(mainPhotoIndex);
  
   // === 모달 상태 ===
   const [showEndModal, setShowEndModal] = useState(false);
@@ -62,13 +80,10 @@ const ChatScreen = ({ route, navigation }) => {
   // 초기화
   // ============================================================
   useEffect(() => {
-    // 세션 시작
-    const initSession = async () => {
-      await chatSession.startSession(photoId);
-    };
-    
-    initSession();
-    
+    // GalleryScreen에서 이미 세션 생성 및 사진 업로드 완료
+    // 첫 인사 메시지만 표시
+    startGreeting();
+
     // 클린업: 언마운트 시 TTS 중지
     return () => {
       chatSession.stopSpeaking();
@@ -82,44 +97,28 @@ const ChatScreen = ({ route, navigation }) => {
     }
   }, [chatSession.messages]);
 
-  // 뒤로가기 버튼 방지
-  useFocusEffect(
-    React.useCallback(() => {
-      const onBackPress = () => {
-        // 3가지 옵션 Alert 표시
-        Alert.alert(
-          '대화를 종료할까요?',
-          '지금 종료하면 영상 생성을 시작할 수 있어요.',
-          [
-            {
-              text: '취소',
-              style: 'cancel',
-              onPress: () => {},
-            },
-            {
-              text: '영상 만들기',
-              onPress: () => {
-                handleEndChat();
-              },
-            },
-            {
-              text: '그냥 나가기',
-              onPress: () => {
-                chatSession.stopSpeaking();
-                navigation.navigate('Home');
-              },
-            },
-          ],
-          { cancelable: true }
-        );
-        return true; // 기본 동작 방지
-      };
+  // ============================================================
+  // API 호출 함수들
+  // ============================================================
+  const startGreeting = async () => {
+    // 첫 인사 메시지
+    const greeting = '우와, 할머니 이 사진 어디서 찍은 거예요? 정말 멋진 곳이네요!';
+    addMessage('assistant', greeting);
 
-      BackHandler.addEventListener('hardwareBackPress', onBackPress);
+    // TTS로 읽기
+    setChatState(STATES.SPEAKING);
+    setEmotion('happy');
+    await speak(greeting);
+    setChatState(STATES.IDLE);
+    setEmotion('neutral');
+  };
 
-      return () => BackHandler.removeEventListener('hardwareBackPress', onBackPress);
-    }, [navigation, chatSession.sessionId, chatSession.canFinish, chatSession.turnCount])
-  );
+  // ============================================================
+  // 메시지 관리
+  // ============================================================
+  const addMessage = (role, content) => {
+    setMessages((prev) => [...prev, { role, content, timestamp: new Date() }]);
+  };
 
   // ============================================================
   // 녹음 처리 (PTT - Push To Talk)
@@ -310,19 +309,21 @@ const ChatScreen = ({ route, navigation }) => {
         )}
  
         {/* 사진 인디케이터 */}
-        {displayPhotos.length > 1 && (
-          <View style={styles.photoIndicator}>
-            {displayPhotos.map((_, index) => (
-              <View
-                key={index}
-                style={[
-                  styles.indicatorDot,
-                  index === currentPhotoIndex && styles.indicatorDotActive,
-                ]}
-              />
-            ))}
-          </View>
-        )}
+        <View style={styles.photoIndicator}>
+  {Array.isArray(relatedPhotos) && relatedPhotos.length > 0 ? (
+    relatedPhotos.map((_, index) => (
+      <View
+        key={index}
+        style={[
+          styles.indicatorDot,
+          index === currentPhotoIndex && styles.indicatorDotActive,
+        ]}
+      />
+    ))
+  ) : (
+    <View style={styles.indicatorDotActive} /> // 사진이 없을 때 기본 점 하나
+  )}
+</View>
       </View>
  
       {/* 대화 내역 */}
