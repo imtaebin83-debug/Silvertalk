@@ -122,12 +122,26 @@ def load_models():
         try:
             import torch
             from qwen_tts import Qwen3TTSModel
+            from huggingface_hub import snapshot_download
             
             # RunPod Volume 경로 사용
             tts_cache_dir = os.path.join(settings.models_root, "qwen3-tts")
             os.makedirs(tts_cache_dir, exist_ok=True)
             
             logger.info("[Qwen3-TTS] 모델 로딩 시작... (최초 5-10분 소요 가능)")
+            
+            # 1단계: Tokenizer 선행 다운로드 (필수)
+            tokenizer_cache_dir = os.path.join(settings.models_root, "qwen3-tts-tokenizer")
+            logger.info("[Qwen3-TTS] Tokenizer 다운로드 중...")
+            snapshot_download(
+                repo_id="Qwen/Qwen3-TTS-Tokenizer-12Hz",
+                cache_dir=tokenizer_cache_dir,
+                local_dir=tokenizer_cache_dir,
+                local_dir_use_symlinks=False
+            )
+            logger.info(f"✅ Tokenizer 다운로드 완료: {tokenizer_cache_dir}")
+            
+            # 2단계: CustomVoice 모델 로딩
             tts_model = Qwen3TTSModel.from_pretrained(
                 "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
                 device_map="cuda:0" if device == "cuda" else "cpu",
