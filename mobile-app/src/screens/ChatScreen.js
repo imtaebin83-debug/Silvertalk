@@ -39,21 +39,30 @@ const STATES = {
 };
  
 const ChatScreen = ({ route, navigation }) => {
-  const { photoId, photoUrl, photoDate } = route.params;
- 
+  // GalleryScreen에서 전달받은 파라미터
+  const {
+    sessionId: initialSessionId,
+    photoUrl,
+    photoDate,
+    allPhotoUrls = [],  // S3에 업로드된 전체 사진 URL 배열
+    mainPhotoIndex = 0  // 선택한 메인 사진의 인덱스
+  } = route.params;
+
   // === 세션 상태 ===
-  const [sessionId, setSessionId] = useState(null);
+  const [sessionId, setSessionId] = useState(initialSessionId);
   const [messages, setMessages] = useState([]);
   const [turnCount, setTurnCount] = useState(0);
   const [canFinish, setCanFinish] = useState(false);
-  
+
   // === 상태 머신 ===
   const [chatState, setChatState] = useState(STATES.IDLE);
   const [emotion, setEmotion] = useState('neutral');
-  
-  // === 연관 사진 ===
-  const [relatedPhotos, setRelatedPhotos] = useState([]);
-  const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
+
+  // === 연관 사진 (S3 URL 사용) ===
+  const [relatedPhotos, setRelatedPhotos] = useState(
+    allPhotoUrls.map((url, idx) => ({ url, order: idx }))
+  );
+  const [currentPhotoIndex, setCurrentPhotoIndex] = useState(mainPhotoIndex);
  
   // === 모달 상태 ===
   const [showEndModal, setShowEndModal] = useState(false);
@@ -72,9 +81,10 @@ const ChatScreen = ({ route, navigation }) => {
   // 초기화
   // ============================================================
   useEffect(() => {
-    startChatSession();
-    fetchRelatedPhotos();
-    
+    // GalleryScreen에서 이미 세션 생성 및 사진 업로드 완료
+    // 첫 인사 메시지만 표시
+    startGreeting();
+
     // 클린업: 언마운트 시 TTS 중지
     return () => {
       stopSpeaking();
@@ -91,56 +101,17 @@ const ChatScreen = ({ route, navigation }) => {
   // ============================================================
   // API 호출 함수들
   // ============================================================
-  const startChatSession = async () => {
-    try {
-      const response = await api.post('/chat/sessions', {
-        photo_id: photoId,
-      });
-      
-      setSessionId(response.id);
-      
-      // 첫 인사 메시지
-      const greeting = response.greeting || '우와, 할머니 이 사진 어디서 찍은 거예요? 정말 멋진 곳이네요!';
-      addMessage('assistant', greeting);
-      
-      // TTS로 읽기
-      setChatState(STATES.SPEAKING);
-      setEmotion('happy');
-      await speak(greeting);
-      setChatState(STATES.IDLE);
-      setEmotion('neutral');
-      
-    } catch (error) {
-      console.error('세션 시작 실패:', error);
-      
-      // 오프라인 모드 (데모용)
-      setSessionId('demo-session-id');
-      const demoGreeting = '우와, 할머니 이 사진 어디서 찍은 거예요? 정말 멋진 곳이네요!';
-      addMessage('assistant', demoGreeting);
-      
-      setChatState(STATES.SPEAKING);
-      setEmotion('happy');
-      await speak(demoGreeting);
-      setChatState(STATES.IDLE);
-      setEmotion('neutral');
-    }
-  };
- 
-  const fetchRelatedPhotos = async () => {
-    try {
-      // API 호출: 비슷한 날짜의 사진 4장 가져오기
-      const response = await api.get(`/gallery/photos/related?photo_id=${photoId}`);
-      setRelatedPhotos(response);
-    } catch (error) {
-      console.error('연관 사진 불러오기 실패:', error);
-      // 임시 데이터
-      setRelatedPhotos([
-        { id: photoId, url: photoUrl, date: photoDate },
-        { id: '2', url: 'https://via.placeholder.com/400', date: photoDate },
-        { id: '3', url: 'https://via.placeholder.com/400', date: photoDate },
-        { id: '4', url: 'https://via.placeholder.com/400', date: photoDate },
-      ]);
-    }
+  const startGreeting = async () => {
+    // 첫 인사 메시지
+    const greeting = '우와, 할머니 이 사진 어디서 찍은 거예요? 정말 멋진 곳이네요!';
+    addMessage('assistant', greeting);
+
+    // TTS로 읽기
+    setChatState(STATES.SPEAKING);
+    setEmotion('happy');
+    await speak(greeting);
+    setChatState(STATES.IDLE);
+    setEmotion('neutral');
   };
 
   // ============================================================
@@ -454,16 +425,20 @@ const ChatScreen = ({ route, navigation }) => {
  
         {/* 사진 인디케이터 */}
         <View style={styles.photoIndicator}>
-          {relatedPhotos.map((_, index) => (
-            <View
-              key={index}
-              style={[
-                styles.indicatorDot,
-                index === currentPhotoIndex && styles.indicatorDotActive,
-              ]}
-            />
-          ))}
-        </View>
+  {Array.isArray(relatedPhotos) && relatedPhotos.length > 0 ? (
+    relatedPhotos.map((_, index) => (
+      <View
+        key={index}
+        style={[
+          styles.indicatorDot,
+          index === currentPhotoIndex && styles.indicatorDotActive,
+        ]}
+      />
+    ))
+  ) : (
+    <View style={styles.indicatorDotActive} /> // 사진이 없을 때 기본 점 하나
+  )}
+</View>
       </View>
  
       {/* 대화 내역 */}
