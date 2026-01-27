@@ -278,6 +278,39 @@ def upload_video(local_path: str, user_id: str, video_id: str) -> tuple:
     return video_url, thumb_url
 
 
+def upload_audio_file(local_path: str, user_id: str, session_id: str) -> str:
+    """
+    오디오 파일 업로드 편의 함수
+    
+    파일명 규칙: audio/{user_id}/{session_id}_{timestamp}.m4a
+    
+    Args:
+        local_path: 로컬 오디오 파일 경로
+        user_id: 사용자 ID
+        session_id: 세션 ID
+    
+    Returns:
+        S3 오디오 URL
+    """
+    client = get_storage_client()
+    
+    # 타임스탬프 생성
+    timestamp = int(datetime.now().timestamp())
+    
+    # S3 키 생성 (확장자는 무조건 .m4a로 고정)
+    audio_key = f"audio/{user_id}/{session_id}_{timestamp}.m4a"
+    
+    # 업로드
+    audio_url = client.upload_file(
+        local_path, 
+        audio_key, 
+        content_type="audio/m4a"
+    )
+    
+    logger.info(f"오디오 업로드 완료: {audio_url}")
+    return audio_url
+
+
 def download_image(image_url: str, local_path: str) -> str:
     """
     이미지 다운로드 편의 함수

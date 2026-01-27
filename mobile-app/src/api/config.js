@@ -79,7 +79,7 @@ export const uploadFormData = async (endpoint, formData) => {
   const headers = {};
   
   // JWT 토큰 추가
-  const token = getToken();
+  const token = await getToken();
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
   }

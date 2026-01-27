@@ -227,13 +227,13 @@ def process_audio_and_reply(self: Task, audio_path: str, user_id: str, session_i
         user_text = transcribe_audio(audio_path)
         logger.info(f"[STT] 인식 결과: {user_text}")
         
-        # Step 2: Brain (Gemini로 대화 생성)
+        # Step 2: Brain (Gemini로 대화 생성 - JSON 반환)
         logger.info(f"[Brain] AI 답변 생성 중...")
-        ai_reply = generate_reply(user_text, user_id, session_id)
-        logger.info(f"[Brain] AI 답변: {ai_reply}")
+        reply_data = generate_reply(user_text, user_id, session_id)
+        ai_reply = reply_data["text"]
+        sentiment = reply_data["sentiment"]
+        logger.info(f"[Brain] AI 답변: {ai_reply} (sentiment={sentiment})")
         
-        # Step 3: 감정 분석 (클라이언트 애니메이션 연동)
-        sentiment = analyze_sentiment(ai_reply)
         logger.info(f"[완료] 텍스트 응답 생성 완료 (sentiment={sentiment})")
         
         return {
@@ -289,9 +289,9 @@ def transcribe_audio(audio_path: str) -> str:
 # ============================================================
 # Brain: Gemini 1.5 Flash
 # ============================================================
-def generate_reply(user_text: str, user_id: str, session_id: str = None) -> str:
+def generate_reply(user_text: str, user_id: str, session_id: str = None) -> dict:
     """
-    사용자 입력에 대한 AI 답변 생성
+    사용자 입력에 대한 AI 답변 생성 (JSON 형식 반환)
     
     Args:
         user_text: 사용자 입력 텍스트
@@ -299,13 +299,20 @@ def generate_reply(user_text: str, user_id: str, session_id: str = None) -> str:
         session_id: 대화 세션 ID
     
     Returns:
-        str: AI 답변
+        dict: {"text": "답변내용", "sentiment": "happy|sad|curious|comforting"}
     """
+    # Safety Fallback 응답
+    FALLBACK_RESPONSE = {
+        "text": "할머니, 제가 잘 못 들었어요. 다시 말씀해 주시겠어요? 멍!",
+        "sentiment": "curious"
+    }
+    
     if gemini_model is None:
-        raise RuntimeError("Gemini 모델이 초기화되지 않았습니다.")
+        logger.error("Gemini 모델이 초기화되지 않았습니다.")
+        return FALLBACK_RESPONSE
     
     try:
-        # 회상 치료 프롬프트
+        # 회상 치료 프롬프트 (JSON 강제)
         prompt = f"""당신은 노인 회상 치료를 돕는 친근한 AI 상담사입니다.
 
 사용자 말: {user_text}
@@ -316,16 +323,44 @@ def generate_reply(user_text: str, user_id: str, session_id: str = None) -> str:
 3. 2-3문장으로 간결하게 답변하세요.
 4. 존댓말을 사용하세요.
 
-답변:"""
+**중요: 반드시 JSON 형식으로만 답변하세요.**
+출력 형식:
+{{
+  "text": "답변 내용",
+  "sentiment": "happy|sad|curious|excited|nostalgic|comforting"
+}}
+"""
         
-        response = gemini_model.generate_content(prompt)
-        ai_reply = response.text.strip()
+        # JSON 출력 강제 설정
+        import google.generativeai as genai
+        response = gemini_model.generate_content(
+            prompt,
+            generation_config=genai.GenerationConfig(
+                response_mime_type="application/json"
+            )
+        )
         
-        return ai_reply
+        # 응답 파싱
+        if response and response.text:
+            import json
+            ai_reply = json.loads(response.text.strip())
+            
+            # 필수 필드 확인
+            if "text" in ai_reply and "sentiment" in ai_reply:
+                logger.info(f"Gemini 답변 성공: {ai_reply['text'][:50]}...")
+                return ai_reply
+            else:
+                logger.warning("Gemini 응답에 필수 필드 누락, Fallback 사용")
+                return FALLBACK_RESPONSE
+        else:
+            # Safety Filter로 None 반환된 경우
+            logger.warning("Gemini Safety Filter 작동, Fallback 사용")
+            return FALLBACK_RESPONSE
     
     except Exception as e:
         logger.error(f"Gemini 답변 생성 실패: {str(e)}")
-        return "죄송합니다. 답변을 생성하는 중 오류가 발생했습니다."
+        logger.error(traceback.format_exc())
+        return FALLBACK_RESPONSE
 
 
 # ============================================================
@@ -419,11 +454,10 @@ def generate_reply_from_text(self: Task, user_text: str, user_id: str, session_i
     try:
         load_models()
         
-        # Gemini로 답변 생성
-        ai_reply = generate_reply(user_text, user_id, session_id)
-        
-        # 감정 분석
-        sentiment = analyze_sentiment(ai_reply)
+        # Gemini로 답변 생성 (JSON 반환)
+        reply_data = generate_reply(user_text, user_id, session_id)
+        ai_reply = reply_data["text"]
+        sentiment = reply_data["sentiment"]
         logger.info(f"✅ AI 답변 생성 완료: {ai_reply[:50]}... (sentiment={sentiment})")
         
         return {
