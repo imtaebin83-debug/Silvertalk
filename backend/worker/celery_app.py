@@ -2,6 +2,7 @@
 Celery 앱 설정 및 초기화
 """
 from celery import Celery
+from kombu import Queue, Exchange
 from common.config import settings
 
 # Celery 앱 생성 (settings.redis_url은 DEPLOYMENT_MODE에 따라 동적 선택)
@@ -31,6 +32,15 @@ celery_app.conf.update(
     # 타임아웃 설정 (AI 모델 로딩 시간 고려)
     task_time_limit=600,  # 10분
     task_soft_time_limit=540,  # 9분
+    
+    # Queue 설정 (EC2 Producer와 RunPod Worker 간 일치 필요)
+    task_queues=(
+        Queue('celery', Exchange('celery'), routing_key='celery'),
+        Queue('ai_tasks', Exchange('ai_tasks', type='direct'), routing_key='ai_tasks'),
+    ),
+    task_default_queue='celery',
+    task_default_exchange='celery',
+    task_default_routing_key='celery',
 )
 
 # 워커 시작 시 실행
