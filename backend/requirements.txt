@@ -1,3 +1,7 @@
+# Core Dependencies (설치 우선순위 최상위)
+numpy>=1.22.0
+setuptools>=65.0.0
+
 # Web Framework
 fastapi==0.109.0
 uvicorn[standard]==0.27.0
@@ -11,8 +15,8 @@ flower==2.0.1
 # AI Models
 faster-whisper==0.10.0
 google-generativeai==0.3.2
-# Qwen3-TTS (설치: pip install git+https://github.com/QwenLM/Qwen3-TTS.git)
-# qwen-tts는 PyPI에 없으므로 수동 설치 필요 (RUNPOD_FIX_ERRORS.md 참조)
+# Qwen3-TTS는 별도 설치 (pip install -U qwen-tts)
+# 이유: 복잡한 의존성 자동 처리 필요
 
 # Audio/Video Processing
 ffmpeg-python==0.2.0
@@ -41,3 +45,4 @@ httpx==0.27.0
 
 torch
 torchaudio>=2.0.0  # Required by qwen-tts
+

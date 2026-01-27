@@ -11,6 +11,8 @@ import {
   Alert,
   Image,
 } from 'react-native';
+import { colors, fonts } from '../theme';
+import authService from '../api/auth';
 
 const ProfileScreen = ({ navigation }) => {
   const [userInfo, setUserInfo] = useState({
@@ -24,20 +26,16 @@ const ProfileScreen = ({ navigation }) => {
 
   const fetchUserInfo = async () => {
     try {
-      // 카카오톡 SDK에서 사용자 정보 가져오기 (추후 구현)
-      // const kakaoInfo = await KakaoSDK.getProfile();
-      // setUserInfo({
-      //   name: kakaoInfo.nickname,
-      //   profileImage: kakaoInfo.profileImageUrl,
-      // });
-
-      // 임시 데이터
+      // ✅ 2. 서버(/auth/me)에서 내 정보 가져오기
+      const data = await authService.getMe(); 
+      
       setUserInfo({
-        name: '할머니',
-        profileImage: null, // 기본 프로필
+        name: data.nickname,
+        profileImage: data.profile_image, 
       });
     } catch (error) {
-      console.error('사용자 정보 불러오기 실패:', error);
+      console.error('내 정보 로드 실패:', error);
+      navigation.replace('Login');
     }
   };
 
@@ -49,11 +47,21 @@ const ProfileScreen = ({ navigation }) => {
         { text: '아니요', style: 'cancel' },
         {
           text: '네',
-          onPress: () => {
-            // 카카오톡 로그아웃 처리 (추후 구현)
-            // await KakaoSDK.logout();
-            Alert.alert('로그아웃 되었습니다.');
-            // navigation.reset으로 로그인 화면으로 이동 (추후 구현)
+          onPress: async () => { // ✅ async 추가
+            try {
+              console.log('👋 로그아웃 시도 중...');
+              await authService.logout(); // ✅ 토큰 삭제 완료까지 기다림
+              
+              Alert.alert('알림', '로그아웃 되었습니다.');
+              
+              // ✅ 네비게이션 스택을 초기화하며 로그인 화면으로 이동
+              navigation.reset({
+                index: 0,
+                routes: [{ name: 'Login' }],
+              });
+            } catch (error) {
+              console.error('로그아웃 에러:', error);
+            }
           },
         },
       ]
@@ -98,7 +106,7 @@ const ProfileScreen = ({ navigation }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFF8DC',
+    backgroundColor: colors.background,
     paddingHorizontal: 30,
     paddingTop: 60,
   },
@@ -118,10 +126,10 @@ const styles = StyleSheet.create({
     width: 150,
     height: 150,
     borderRadius: 75,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.white,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#000',
+    shadowColor: colors.shadow,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.15,
     shadowRadius: 4,
@@ -131,30 +139,33 @@ const styles = StyleSheet.create({
     fontSize: 80,
   },
   userName: {
-    fontSize: 28,
+    fontSize: fonts.sizes.title,
+    fontFamily: fonts.bold,
     fontWeight: 'bold',
-    color: '#333',
+    color: colors.text,
     marginBottom: 8,
   },
   userSubText: {
-    fontSize: 16,
-    color: '#888',
+    fontSize: fonts.sizes.medium,
+    fontFamily: fonts.regular,
+    color: colors.textLight,
   },
   logoutButton: {
     backgroundColor: '#FF6B6B',
     borderRadius: 15,
     paddingVertical: 18,
     alignItems: 'center',
-    shadowColor: '#000',
+    shadowColor: colors.shadow,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
     shadowRadius: 4,
     elevation: 4,
   },
   logoutButtonText: {
-    fontSize: 20,
+    fontSize: fonts.sizes.xlarge,
+    fontFamily: fonts.bold,
     fontWeight: 'bold',
-    color: '#FFFFFF',
+    color: colors.textWhite,
   },
 });
 

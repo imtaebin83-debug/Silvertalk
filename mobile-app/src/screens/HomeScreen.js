@@ -1,200 +1,203 @@
 /**
  * 홈 화면
- * 설계도 1번: 좌상단 대화기록/추억극장 버튼, 우상단 프로필, 중앙 캐릭터+말풍선
+ * 수정 사항: 강아지 크기 확대, 위치 상향 조정, 꼬리 밀착 및 레이어 순서 조정
  */
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
-  Image,
-  Animated,
   SafeAreaView,
   StatusBar,
+  Image,
+  Animated,
+  Easing,
 } from 'react-native';
+import { colors, fonts } from '../theme';
 
 const HomeScreen = ({ navigation }) => {
   const [greeting, setGreeting] = useState('');
-  const [dogAnimation] = useState(new Animated.Value(0));
+  const tailAnimation = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    // 강아지 좌우 흔들리는 애니메이션
+    fetchGreeting();
+    startTailWagging();
+  }, []);
+
+  const startTailWagging = () => {
     Animated.loop(
       Animated.sequence([
-        Animated.timing(dogAnimation, {
+        Animated.timing(tailAnimation, {
           toValue: 1,
-          duration: 500,
+          duration: 400,
+          easing: Easing.sinInOut,
           useNativeDriver: true,
         }),
-        Animated.timing(dogAnimation, {
+        Animated.timing(tailAnimation, {
           toValue: -1,
-          duration: 500,
+          duration: 800,
+          easing: Easing.sinInOut,
           useNativeDriver: true,
         }),
-        Animated.timing(dogAnimation, {
+        Animated.timing(tailAnimation, {
           toValue: 0,
-          duration: 500,
+          duration: 400,
+          easing: Easing.sinInOut,
           useNativeDriver: true,
         }),
       ])
     ).start();
+  };
 
-    fetchGreeting();
-  }, []);
+  const tailRotation = tailAnimation.interpolate({
+    inputRange: [-1, 0, 1],
+    outputRange: ['-10deg', '0deg', '10deg'],
+  });
 
   const fetchGreeting = async () => {
     try {
-      // API 호출 (추후 구현)
-      // const response = await axios.get('http://localhost:8000/home/greeting?kakao_id=test');
-      // setGreeting(response.data.message);
       setGreeting('할머니, 오셨어요? 복실이가 심심했어요! 놀아주세요~');
     } catch (error) {
-      console.error('인사 메시지 불러오기 실패:', error);
       setGreeting('멍멍! 반가워요!');
     }
   };
 
-  const wobble = dogAnimation.interpolate({
-    inputRange: [-1, 0, 1],
-    outputRange: ['-5deg', '0deg', '5deg'],
-  });
-
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="#FFF8DC" />
-
-      {/* 상단 버튼 영역 */}
-      <View style={styles.topBar}>
-        {/* 좌상단: 대화기록 + 추억극장 버튼 */}
-        <View style={styles.leftButtons}>
-          <TouchableOpacity
-            style={styles.topButton}
-            onPress={() => navigation.navigate('ChatHistory')}
-          >
-            <Text style={styles.topButtonText}>대화{'\n'}기록</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.topButton}
-            onPress={() => navigation.navigate('VideoGallery')}
-          >
-            <Text style={styles.topButtonText}>추억{'\n'}극장</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* 우상단: 프로필 버튼 */}
-        <TouchableOpacity
-          style={styles.profileButton}
-          onPress={() => navigation.navigate('Profile')}
-        >
-          <View style={styles.profileIcon}>
-            <Text style={styles.profileIconText}>👤</Text>
-          </View>
-        </TouchableOpacity>
+    <View style={styles.container}>
+      {/* 1. 강아지 캐릭터 영역 (중앙으로 올림) */}
+      <View style={styles.dogContainer}>
+        {/* 꼬리: 몸통 왼쪽(엉덩이) 위치에 배치 */}
+        <Animated.Image
+          source={require('../../assets/dog_tail.png')}
+          style={[
+            styles.dogTail,
+            {
+              transform: [
+                { translateX: 40 }, // 회전 중심 조절 (이미지 크기에 맞춤)
+                { translateY: 40 },
+                { rotate: tailRotation },
+                { translateX: -40 },
+                { translateY: -40 },
+              ],
+            },
+          ]}
+          resizeMode="contain"
+        />
+        {/* 몸통: 크기를 대폭 키움 */}
+        <Image
+          source={require('../../assets/dog_body.png')}
+          style={styles.dogBody}
+          resizeMode="contain"
+        />
       </View>
 
-      {/* 중앙 컨텐츠 영역 */}
-      <View style={styles.centerContent}>
-        {/* 말풍선 */}
-        <View style={styles.speechBubble}>
-          <Text style={styles.greetingText}>{greeting}</Text>
-          <View style={styles.speechBubbleTail} />
+      {/* 2. 터치 레이어 (강아지 클릭 시 대화 시작) */}
+      <TouchableOpacity
+        style={styles.dogTouchArea}
+        onPress={() => navigation.navigate('Gallery')}
+        activeOpacity={0.6}
+      />
+
+      {/* 3. 상단 및 중앙 UI 레이어 (강아지 위에 덮임) */}
+      <SafeAreaView style={styles.overlay} pointerEvents="box-none">
+        <StatusBar barStyle="dark-content" translucent backgroundColor="transparent" />
+
+        {/* 상단 버튼들 */}
+        <View style={styles.topBar}>
+          <View style={styles.leftButtons}>
+            <TouchableOpacity style={styles.topButton} onPress={() => navigation.navigate('ChatHistory')}>
+              <Text style={styles.topButtonIcon}>💬</Text>
+              <Text style={styles.topButtonText}>대화기록</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.topButton} onPress={() => navigation.navigate('VideoGallery')}>
+              <Text style={styles.topButtonIcon}>🎬</Text>
+              <Text style={styles.topButtonText}>추억극장</Text>
+            </TouchableOpacity>
+          </View>
+
+          <TouchableOpacity style={styles.profileButton} onPress={() => navigation.navigate('Profile')}>
+            <View style={styles.profileIcon}><Text style={{fontSize: 28}}>👤</Text></View>
+          </TouchableOpacity>
         </View>
 
-        {/* 강아지 캐릭터 (터치하면 Gallery로 이동) */}
-        <TouchableOpacity
-          onPress={() => navigation.navigate('Gallery')}
-          activeOpacity={0.8}
-        >
-          <Animated.Image
-            source={require('../../assets/dog.png')}
-            style={[
-              styles.dogImage,
-              { transform: [{ rotate: wobble }] }
-            ]}
-            resizeMode="contain"
-          />
-        </TouchableOpacity>
+        {/* 말풍선 (강아지 이미지 패딩 위로 겹침) */}
+        <View style={styles.centerContent} pointerEvents="box-none">
+          <TouchableOpacity onPress={() => navigation.navigate('Gallery')} activeOpacity={0.8}>
+            <View style={styles.speechBubble}>
+              <Text style={styles.greetingText}>{greeting}</Text>
+              <View style={styles.speechBubbleTail} />
+            </View>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
 
-        {/* 캐릭터 설명 */}
+      {/* 하단 라벨 (강아지 위에 고정) */}
+      <View style={styles.bottomContent} pointerEvents="box-none">
         <View style={styles.characterLabel}>
           <Text style={styles.characterLabelText}>복실이</Text>
           <Text style={styles.characterSubLabel}>터치해서 대화 시작!</Text>
         </View>
       </View>
-    </SafeAreaView>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFF8DC',
+    backgroundColor: colors.background || '#EAEAEA',
+  },
+  dogContainer: {
+    position: 'absolute',
+    bottom: 110,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1,
+  },
+  dogBody: {
+    width: 500,
+    height: 580,
+  },
+  dogTail: {
+    position: 'absolute',
+    width: 80,
+    height: 100,
+    left: '14%',
+    bottom: '42%',
+    zIndex: 0,
+  },
+  dogTouchArea: {
+    position: 'absolute',
+    bottom: 60,
+    alignSelf: 'center',
+    width: '80%',
+    height: '50%',
+    zIndex: 3,
+  },
+  overlay: {
+    flex: 1,
+    zIndex: 2,
   },
   topBar: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    paddingHorizontal: 15,
+    paddingHorizontal: 20,
     paddingTop: 10,
   },
-  leftButtons: {
-    flexDirection: 'row',
-    gap: 10,
-  },
+  leftButtons: { flexDirection: 'row', gap: 12 },
   topButton: {
-    backgroundColor: '#FFD700',
-    borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 3,
-    elevation: 3,
-  },
-  topButtonText: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
-    textAlign: 'center',
-    lineHeight: 20,
-  },
-  profileButton: {
-    padding: 5,
-  },
-  profileIcon: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: '#FFFFFF',
-    justifyContent: 'center',
+    backgroundColor: colors.primary,
+    borderRadius: 18,
+    paddingVertical: 14,
+    paddingHorizontal: 18,
     alignItems: 'center',
-    shadowColor: '#000',
+    shadowColor: colors.shadow,
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 3,
-    elevation: 3,
-  },
-  profileIconText: {
-    fontSize: 28,
-  },
-  centerContent: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-  },
-  speechBubble: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 20,
-    marginBottom: 20,
-    maxWidth: '85%',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 3.84,
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
     elevation: 5,
     position: 'relative',
   },
@@ -212,29 +215,89 @@ const styles = StyleSheet.create({
     borderRightColor: 'transparent',
     borderTopColor: '#FFFFFF',
   },
-  greetingText: {
-    fontSize: 22,
-    textAlign: 'center',
-    color: '#333',
-    lineHeight: 32,
+  topButtonIcon: {
+    fontSize: 24,
+    marginBottom: 4,
   },
-  dogImage: {
-    width: 250,
-    height: 250,
+  topButtonText: {
+    fontSize: fonts.sizes.medium,
+    fontFamily: fonts.regular,
+    fontWeight: 'bold',
+    color: colors.textBlack,
+    textAlign: 'center',
+  },
+  profileButton: {
+    padding: 5,
+  },
+  profileIcon: {
+    width: 55,
+    height: 55,
+    borderRadius: 27.5,
+    backgroundColor: '#FFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 4,
+  },
+  centerContent: {
+    alignItems: 'center',
+    paddingTop: 100,
+    paddingHorizontal: 20,
+  },
+  speechBubble: {
+    backgroundColor: '#FFF',
+    borderRadius: 25,
+    padding: 20,
+    maxWidth: '90%',
+    elevation: 5,
+    position: 'relative',
+  },
+  speechBubbleTail: {
+    position: 'absolute',
+    bottom: -12,
+    left: '50%',
+    marginLeft: -12,
+    borderTopWidth: 15,
+    borderTopColor: '#FFF',
+    borderLeftWidth: 12,
+    borderLeftColor: 'transparent',
+    borderRightWidth: 12,
+    borderRightColor: 'transparent',
+  },
+  greetingText: {
+    fontSize: fonts.sizes.xlarge,
+    fontFamily: fonts.regular,
+    textAlign: 'center',
+    color: colors.text,
+    lineHeight: fonts.lineHeights.xlarge,
+  },
+  bottomContent: {
+    position: 'absolute',
+    bottom: 200,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    zIndex: 4,
   },
   characterLabel: {
-    marginTop: 15,
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    paddingHorizontal: 30,
+    paddingVertical: 10,
+    borderRadius: 20,
     alignItems: 'center',
   },
   characterLabelText: {
-    fontSize: 24,
+    fontSize: fonts.sizes.xxlarge,
+    fontFamily: fonts.bold,
     fontWeight: 'bold',
-    color: '#333',
+    color: colors.text,
+    textAlign: 'center',
   },
   characterSubLabel: {
-    fontSize: 16,
-    color: '#888',
-    marginTop: 5,
+    fontSize: fonts.sizes.small,
+    fontFamily: fonts.regular,
+    color: colors.textLight,
+    marginTop: 4,
+    textAlign: 'center',
   },
 });
 

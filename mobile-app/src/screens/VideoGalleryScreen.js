@@ -13,8 +13,10 @@ import {
   Alert,
   Dimensions,
 } from 'react-native';
+import { colors, fonts } from '../theme';
 
 const { width } = Dimensions.get('window');
+
 
 const VideoGalleryScreen = ({ navigation }) => {
   const [videos, setVideos] = useState([]);
@@ -126,18 +128,18 @@ const VideoGalleryScreen = ({ navigation }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFF8DC',
+    backgroundColor: colors.background,
   },
   videoList: {
     padding: 15,
     paddingBottom: 30,
   },
   videoCard: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.white,
     borderRadius: 15,
     marginBottom: 20,
     overflow: 'hidden',
-    shadowColor: '#000',
+    shadowColor: colors.shadow,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
     shadowRadius: 4,
@@ -168,7 +170,7 @@ const styles = StyleSheet.create({
   },
   playIcon: {
     fontSize: 30,
-    color: '#FFD700',
+    color: colors.primary,
     marginLeft: 5,
   },
   videoInfo: {
@@ -181,26 +183,29 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   videoTitle: {
-    fontSize: 20,
+    fontSize: fonts.sizes.xlarge,
+    fontFamily: fonts.bold,
     fontWeight: 'bold',
-    color: '#333',
+    color: colors.text,
     marginBottom: 5,
   },
   videoDate: {
-    fontSize: 16,
-    color: '#888',
+    fontSize: fonts.sizes.medium,
+    fontFamily: fonts.regular,
+    color: colors.textLight,
   },
   shareButton: {
-    backgroundColor: '#FFD700',
+    backgroundColor: colors.primary,
     paddingVertical: 12,
     paddingHorizontal: 20,
     borderRadius: 10,
     marginLeft: 10,
   },
   shareButtonText: {
-    fontSize: 16,
+    fontSize: fonts.sizes.medium,
+    fontFamily: fonts.bold,
     fontWeight: 'bold',
-    color: '#FFFFFF',
+    color: colors.textWhite,
   },
   emptyState: {
     flex: 1,
@@ -213,14 +218,16 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   emptyText: {
-    fontSize: 22,
+    fontSize: fonts.sizes.xlarge,
+    fontFamily: fonts.bold,
     fontWeight: 'bold',
-    color: '#666',
+    color: colors.textLight,
     textAlign: 'center',
     marginBottom: 10,
   },
   emptySubText: {
-    fontSize: 18,
+    fontSize: fonts.sizes.large,
+    fontFamily: fonts.regular,
     color: '#999',
     textAlign: 'center',
   },

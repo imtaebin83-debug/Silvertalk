@@ -1,7 +1,8 @@
 """
-Celery AI 처리 태스크 (Qwen3-TTS 버전)
+Celery AI 처리 태스크 (TTS 제거 버전)
 - 동적 디바이스 감지 (CUDA/CPU 자동 전환)
-- AI 모델: Faster-Whisper (STT), Gemini (LLM), Qwen3-TTS (TTS)
+- AI 모델: Faster-Whisper (STT), Gemini (LLM)
+- TTS는 클라이언트 expo-speech로 대체
 - CUDA 충돌 방지: Lazy 초기화 + 명시적 .env 로드
 """
 
@@ -75,7 +76,7 @@ def detect_device():
 # AI 모델 전역 변수 (워커 시작 시 한 번만 로드)
 # ============================================================
 whisper_model = None
-tts_model = None
+# tts_model = None  # TTS 제거 (시간 절약)
 gemini_model = None
 
 
@@ -105,47 +106,21 @@ def load_models():
             os.makedirs(whisper_root, exist_ok=True)
             
             logger.info(f"[Whisper] 모델 로딩 시작... (경로: {whisper_root})")
+            # medium: 1.5GB, 한국어 정확도 95%+ (large-v3 대비 약간 하락하지만 충분)
             whisper_model = WhisperModel(
-                model_size_or_path="large-v3",
+                model_size_or_path="medium",
                 device=device,
                 compute_type=compute_type,
                 download_root=whisper_root
             )
-            logger.info(f"✅ Whisper 모델 로딩 완료 (device={device}, path={whisper_root})")
+            logger.info(f"✅ Whisper 모델 로딩 완료 (model=medium, device={device}, path={whisper_root})")
         except Exception as e:
             logger.error(f"❌ Whisper 로딩 실패: {str(e)}")
             logger.error(traceback.format_exc())
             whisper_model = None
     
-    # TTS: Qwen3-TTS CustomVoice 로딩
-    if tts_model is None:
-        try:
-            import torch
-            from qwen_tts import Qwen3TTSModel
-            
-            # RunPod Volume 경로 사용
-            tts_cache_dir = os.path.join(settings.models_root, "qwen3-tts")
-            os.makedirs(tts_cache_dir, exist_ok=True)
-            
-            logger.info("[Qwen3-TTS] 모델 로딩 시작... (최초 5-10분 소요 가능)")
-            tts_model = Qwen3TTSModel.from_pretrained(
-                "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
-                device_map="cuda:0" if device == "cuda" else "cpu",
-                dtype=torch.bfloat16 if device == "cuda" else torch.float32,
-                attn_implementation="eager",  # Flash Attention 없이 (빠른 테스트)
-                cache_dir=tts_cache_dir
-            )
-            logger.info(f"✅ Qwen3-TTS 모델 로딩 완료 (device={device})")
-            
-            # 지원 언어/화자 출력
-            logger.info(f"   지원 언어: {tts_model.get_supported_languages()}")
-            logger.info(f"   지원 화자: {tts_model.get_supported_speakers()}")
-            
-        except Exception as e:
-            logger.error(f"❌ Qwen3-TTS 로딩 실패: {str(e)}")
-            logger.error(traceback.format_exc())
-            logger.warning("⚠️ TTS 기능 비활성화 - 텍스트 응답만 가능")
-            tts_model = None
+    # TTS: 제거 (시간 절약, API로 대체 예정)
+    # logger.info("⚠️ TTS 비활성화 - 텍스트 응답만 제공")
     
     # LLM: Gemini 1.5 Flash 초기화
     if gemini_model is None:
@@ -157,12 +132,65 @@ def load_models():
                 raise ValueError("GEMINI_API_KEY 환경 변수가 설정되지 않았습니다.")
             
             genai.configure(api_key=api_key)
-            gemini_model = genai.GenerativeModel("gemini-pro")
-            logger.info("✅ Gemini Pro 초기화 완료")
+            # 최신 안정 버전 사용 (API 키 재발급 후 gemini-1.5-flash로 변경 가능)
+            gemini_model = genai.GenerativeModel("gemini-1.5-flash-latest")
+            logger.info("✅ Gemini 1.5 Flash 초기화 완료")
         except Exception as e:
             logger.error(f"❌ Gemini 초기화 실패: {str(e)}")
             logger.error(traceback.format_exc())
             gemini_model = None
+
+
+# ============================================================
+# Celery 태스크: AI 모델 사전 로드
+# ============================================================
+@celery_app.task(bind=True, name="worker.tasks.preload_models")
+def preload_models(self: Task):
+    """
+    AI 모델 사전 로드 (Whisper, Qwen3-TTS, Gemini)
+    
+    첫 태스크 실행 전에 이 task를 실행하면 모델을 미리 다운로드할 수 있습니다.
+    
+    Returns:
+        dict: 각 모델의 로딩 상태
+    """
+    try:
+        logger.info("🚀 AI 모델 사전 로드 시작...")
+        
+        load_models()
+        
+        # 각 모델 로딩 상태 확인
+        status = {
+            "whisper": "loaded" if whisper_model is not None else "failed",
+            "gemini": "loaded" if gemini_model is not None else "failed",
+        }
+        
+        # 모델 저장 경로 확인
+        import subprocess
+        models_info = subprocess.run(
+            ['du', '-sh', f'{settings.models_root}/*'],
+            capture_output=True,
+            text=True
+        )
+        
+        logger.info("✅ AI 모델 사전 로드 완료!")
+        logger.info(f"   모델 상태: {status}")
+        logger.info(f"   저장 경로: {settings.models_root}")
+        
+        return {
+            "status": "success",
+            "models": status,
+            "storage_info": models_info.stdout,
+            "message": "모든 모델 로드 완료"
+        }
+    
+    except Exception as e:
+        logger.error(f"❌ 모델 사전 로드 실패: {str(e)}")
+        logger.error(traceback.format_exc())
+        return {
+            "status": "error",
+            "message": str(e)
+        }
 
 
 # ============================================================
@@ -204,18 +232,16 @@ def process_audio_and_reply(self: Task, audio_path: str, user_id: str, session_i
         ai_reply = generate_reply(user_text, user_id, session_id)
         logger.info(f"[Brain] AI 답변: {ai_reply}")
         
-        # Step 3: TTS (텍스트 → 음성)
-        logger.info(f"[TTS] 음성 합성 시작...")
-        output_audio_path = f"/app/data/{user_id}_reply_{self.request.id}.wav"
-        os.makedirs(os.path.dirname(output_audio_path), exist_ok=True)
-        synthesize_speech(ai_reply, output_audio_path)
-        logger.info(f"[TTS] 음성 합성 완료: {output_audio_path}")
+        # Step 3: 감정 분석 (클라이언트 애니메이션 연동)
+        sentiment = analyze_sentiment(ai_reply)
+        logger.info(f"[완료] 텍스트 응답 생성 완료 (sentiment={sentiment})")
         
         return {
             "status": "success",
             "user_text": user_text,
             "ai_reply": ai_reply,
-            "audio_url": output_audio_path
+            "sentiment": sentiment,
+            "session_id": session_id  # 클라이언트에서 DB 저장용
         }
     
     except Exception as e:
@@ -303,38 +329,41 @@ def generate_reply(user_text: str, user_id: str, session_id: str = None) -> str:
 
 
 # ============================================================
-# TTS: Qwen3-TTS CustomVoice
+# 감정 분석 (애니메이션 연동용)
 # ============================================================
-def synthesize_speech(text: str, output_path: str):
+def analyze_sentiment(text: str) -> str:
     """
-    텍스트를 음성으로 변환 (Qwen3-TTS CustomVoice)
+    AI 답변의 감정을 분석하여 강아지 애니메이션 결정
     
     Args:
-        text: 합성할 텍스트
-        output_path: 출력 음성 파일 경로
+        text: AI 답변 텍스트
+    
+    Returns:
+        str: "happy" | "curious" | "nostalgic" | "excited" | "comforting"
     """
-    if tts_model is None:
-        raise RuntimeError("Qwen3-TTS 모델이 로딩되지 않았습니다.")
+    # 키워드 기반 감정 분석
+    happy_keywords = ["좋", "기뻐", "행복", "웃", "재밌", "신나", "멋지"]
+    curious_keywords = ["뭐", "어디", "누구", "언제", "왜", "어떻게", "?"]
+    nostalgic_keywords = ["추억", "옛날", "그때", "기억", "예전", "어릴", "오래"]
+    excited_keywords = ["와", "우와", "대박", "정말", "진짜", "!"]
     
-    try:
-        # Qwen3-TTS CustomVoice 생성
-        # Speaker: Sohee (한국어 네이티브 화자)
-        # Instruction: 애교 많은 강아지 느낌
-        wavs, sr = tts_model.generate_custom_voice(
-            text=text,
-            language="Korean",
-            speaker="Sohee",  # 한국어 네이티브 여성 화자
-            instruct="할머니를 정말 좋아하는 애교 많은 강아지처럼, 꼬리를 살랑살랑 흔드는 느낌으로 밝고 다정하게 말해줘."
-        )
-        
-        # 음성 파일 저장
-        sf.write(output_path, wavs[0], sr)
-        logger.info(f"✅ TTS 완료: {output_path} (샘플레이트: {sr} Hz)")
+    text_lower = text.lower()
     
-    except Exception as e:
-        logger.error(f"TTS 실패: {str(e)}")
-        logger.error(traceback.format_exc())
-        raise
+    # 우선순위: curious > nostalgic > excited > happy > comforting
+    for kw in curious_keywords:
+        if kw in text_lower:
+            return "curious"
+    for kw in nostalgic_keywords:
+        if kw in text_lower:
+            return "nostalgic"
+    for kw in excited_keywords:
+        if kw in text_lower:
+            return "excited"
+    for kw in happy_keywords:
+        if kw in text_lower:
+            return "happy"
+    
+    return "comforting"  # 기본값: 따뜻한 위로
 
 
 # ============================================================
@@ -393,35 +422,16 @@ def generate_reply_from_text(self: Task, user_text: str, user_id: str, session_i
         # Gemini로 답변 생성
         ai_reply = generate_reply(user_text, user_id, session_id)
         
-        # TTS 음성 생성 (모델이 로딩된 경우만)
-        audio_url = None
-        if tts_model is not None:
-            try:
-                import tempfile
-                from common.s3_client import upload_file
-                
-                # 임시 파일 생성
-                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-                    audio_path = tmp.name
-                
-                # TTS 합성
-                synthesize_speech(ai_reply, audio_path)
-                
-                # S3 업로드
-                audio_url = upload_file(audio_path, f"{user_id}/replies", f"reply_{self.request.id}.wav")
-                
-                # 임시 파일 삭제
-                os.remove(audio_path)
-                
-                logger.info(f"✅ TTS 음성 생성 완료: {audio_url}")
-            except Exception as tts_error:
-                logger.warning(f"⚠️ TTS 실패 (텍스트는 정상): {str(tts_error)}")
+        # 감정 분석
+        sentiment = analyze_sentiment(ai_reply)
+        logger.info(f"✅ AI 답변 생성 완료: {ai_reply[:50]}... (sentiment={sentiment})")
         
         return {
             "status": "success",
             "user_text": user_text,
             "ai_reply": ai_reply,
-            "audio_url": audio_url,
+            "sentiment": sentiment,
+            "session_id": session_id,
             "gemini_response": ai_reply  # 테스트 스크립트 호환
         }
     
@@ -575,12 +585,17 @@ def generate_memory_video(
         logger.info(f"[영상 생성] 내레이션: {narration_text[:100]}...")
 
         # ============================================================
-        # Step 3: TTS 내레이션 생성 (Qwen3-TTS)
+        # Step 3: 배경음악 설정 (TTS 제거됨)
         # ============================================================
-        logger.info(f"[영상 생성] Step 3: TTS 음성 생성")
-        narration_audio_path = f"/app/data/video_{video_id}_narration.wav"
-        temp_files.append(narration_audio_path)
-        synthesize_speech(narration_text, narration_audio_path)
+        logger.info(f"[영상 생성] Step 3: 배경음악 설정 (TTS 제거)")
+        # BGM 파일이 없으면 무음으로 처리
+        bgm_path = os.path.join(settings.models_root, "bgm", "emotional_bgm.mp3")
+        if os.path.exists(bgm_path):
+            narration_audio_path = bgm_path
+            logger.info(f"[영상 생성] BGM 사용: {bgm_path}")
+        else:
+            narration_audio_path = None
+            logger.warning(f"[영상 생성] BGM 파일 없음, 무음으로 생성")
 
         # ============================================================
         # Step 4: 영상 생성
@@ -593,9 +608,9 @@ def generate_memory_video(
             # FFmpeg 슬라이드쇼 생성
             generate_slideshow(
                 image_paths=local_photo_paths,
-                audio_path=narration_audio_path,
+                audio_path=narration_audio_path,  # BGM 또는 None
                 output_path=output_video_path,
-                duration_per_image=3.0
+                duration_per_image=4.0  # 사진당 4초 (어르신 시청 고려)
             )
         else:
             # Replicate SVD 애니메이션 (기존 로직)
