@@ -11,6 +11,7 @@ import {
   Alert,
   Image,
 } from 'react-native';
+import { colors, fonts } from '../theme';
 
 const ProfileScreen = ({ navigation }) => {
   const [userInfo, setUserInfo] = useState({
@@ -98,7 +99,7 @@ const ProfileScreen = ({ navigation }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFF8DC',
+    backgroundColor: colors.background,
     paddingHorizontal: 30,
     paddingTop: 60,
   },
@@ -118,10 +119,10 @@ const styles = StyleSheet.create({
     width: 150,
     height: 150,
     borderRadius: 75,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.white,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#000',
+    shadowColor: colors.shadow,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.15,
     shadowRadius: 4,
@@ -131,30 +132,33 @@ const styles = StyleSheet.create({
     fontSize: 80,
   },
   userName: {
-    fontSize: 28,
+    fontSize: fonts.sizes.title,
+    fontFamily: fonts.bold,
     fontWeight: 'bold',
-    color: '#333',
+    color: colors.text,
     marginBottom: 8,
   },
   userSubText: {
-    fontSize: 16,
-    color: '#888',
+    fontSize: fonts.sizes.medium,
+    fontFamily: fonts.regular,
+    color: colors.textLight,
   },
   logoutButton: {
     backgroundColor: '#FF6B6B',
     borderRadius: 15,
     paddingVertical: 18,
     alignItems: 'center',
-    shadowColor: '#000',
+    shadowColor: colors.shadow,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
     shadowRadius: 4,
     elevation: 4,
   },
   logoutButtonText: {
-    fontSize: 20,
+    fontSize: fonts.sizes.xlarge,
+    fontFamily: fonts.bold,
     fontWeight: 'bold',
-    color: '#FFFFFF',
+    color: colors.textWhite,
   },
 });
 

@@ -12,6 +12,7 @@ import {
   Alert,
   Dimensions,
 } from 'react-native';
+import { colors, fonts } from '../theme';
 
 const { width } = Dimensions.get('window');
 const PHOTO_SIZE = (width - 60) / 2; // 2열, 좌우 패딩 고려
@@ -73,7 +74,7 @@ const GalleryScreen = ({ navigation }) => {
       <View style={styles.topSection}>
         <View style={styles.characterContainer}>
           <Image
-            source={require('../../assets/dog.png')}
+            source={require('../../assets/dog_nukki.png')}
             style={styles.smallDog}
             resizeMode="contain"
           />
@@ -126,7 +127,7 @@ const GalleryScreen = ({ navigation }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFF8DC',
+    backgroundColor: colors.background,
     padding: 15,
   },
   topSection: {
@@ -139,24 +140,25 @@ const styles = StyleSheet.create({
     height: 60,
   },
   smallDog: {
-    width: '100%',
-    height: '100%',
+    width: '130%',
+    height: '130%',
   },
   speechBubble: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.white,
     borderRadius: 15,
     padding: 12,
     marginLeft: 10,
-    shadowColor: '#000',
+    shadowColor: colors.shadow,
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
     shadowRadius: 2,
     elevation: 2,
   },
   speechText: {
-    fontSize: 16,
-    color: '#333',
+    fontSize: fonts.sizes.medium,
+    fontFamily: fonts.regular,
+    color: colors.text,
   },
   photoGrid: {
     flex: 1,
@@ -171,8 +173,8 @@ const styles = StyleSheet.create({
     marginBottom: 15,
     borderRadius: 15,
     overflow: 'hidden',
-    backgroundColor: '#FFFFFF',
-    shadowColor: '#000',
+    backgroundColor: colors.white,
+    shadowColor: colors.shadow,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
     shadowRadius: 4,
@@ -193,8 +195,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
   },
   photoDateText: {
-    fontSize: 12,
-    color: '#FFFFFF',
+    fontSize: fonts.sizes.small,
+    fontFamily: fonts.regular,
+    color: colors.textWhite,
   },
   bottomSection: {
     flexDirection: 'row',
@@ -207,10 +210,10 @@ const styles = StyleSheet.create({
     width: 60,
     height: 60,
     borderRadius: 30,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.white,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#000',
+    shadowColor: colors.shadow,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
     shadowRadius: 4,
@@ -223,10 +226,10 @@ const styles = StyleSheet.create({
     width: 100,
     height: 100,
     borderRadius: 50,
-    backgroundColor: '#FFD700',
+    backgroundColor: colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#000',
+    shadowColor: colors.shadow,
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.3,
     shadowRadius: 5,
@@ -236,9 +239,10 @@ const styles = StyleSheet.create({
     fontSize: 36,
   },
   micText: {
-    fontSize: 14,
+    fontSize: fonts.sizes.small,
+    fontFamily: fonts.bold,
     fontWeight: 'bold',
-    color: '#FFFFFF',
+    color: colors.textWhite,
     marginTop: 4,
   },
 });

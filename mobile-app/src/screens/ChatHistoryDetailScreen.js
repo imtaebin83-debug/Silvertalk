@@ -11,6 +11,7 @@ import {
   Image,
   Dimensions,
 } from 'react-native';
+import { colors, fonts } from '../theme';
 
 const { width } = Dimensions.get('window');
 
@@ -92,7 +93,7 @@ const ChatHistoryDetailScreen = ({ route, navigation }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFF8DC',
+    backgroundColor: colors.background,
   },
   photoSection: {
     width: '100%',
@@ -104,14 +105,15 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   questionSection: {
-    backgroundColor: '#FFD700',
+    backgroundColor: colors.primary,
     paddingVertical: 15,
     paddingHorizontal: 20,
   },
   questionText: {
-    fontSize: 18,
+    fontSize: fonts.sizes.large,
+    fontFamily: fonts.bold,
     fontWeight: 'bold',
-    color: '#FFFFFF',
+    color: colors.textWhite,
     textAlign: 'center',
   },
   chatSection: {
@@ -129,26 +131,28 @@ const styles = StyleSheet.create({
   },
   userBubble: {
     alignSelf: 'flex-end',
-    backgroundColor: '#FFD700',
+    backgroundColor: colors.primary,
   },
   assistantBubble: {
     alignSelf: 'flex-start',
-    backgroundColor: '#FFFFFF',
-    shadowColor: '#000',
+    backgroundColor: colors.white,
+    shadowColor: colors.shadow,
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
     shadowRadius: 2,
     elevation: 2,
   },
   senderName: {
-    fontSize: 12,
-    color: '#888',
+    fontSize: fonts.sizes.small,
+    fontFamily: fonts.regular,
+    color: colors.textLight,
     marginBottom: 5,
   },
   messageText: {
-    fontSize: 18,
-    color: '#333',
-    lineHeight: 26,
+    fontSize: fonts.sizes.large,
+    fontFamily: fonts.regular,
+    color: colors.text,
+    lineHeight: fonts.lineHeights.large,
   },
 });
 

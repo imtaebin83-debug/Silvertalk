@@ -16,7 +16,8 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { Audio } from 'expo-av';
- 
+import { colors, fonts } from '../theme';
+
 const { width } = Dimensions.get('window');
  
 const ChatScreen = ({ route, navigation }) => {
@@ -322,7 +323,7 @@ const ChatScreen = ({ route, navigation }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFF8DC',
+    backgroundColor: colors.background,
   },
   photoSection: {
     width: '100%',
@@ -372,7 +373,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.5)',
   },
   indicatorDotActive: {
-    backgroundColor: '#FFD700',
+    backgroundColor: colors.primary,
   },
   chatArea: {
     flex: 1,
@@ -389,26 +390,28 @@ const styles = StyleSheet.create({
   },
   userBubble: {
     alignSelf: 'flex-end',
-    backgroundColor: '#FFD700',
+    backgroundColor: colors.primary,
   },
   assistantBubble: {
     alignSelf: 'flex-start',
-    backgroundColor: '#FFFFFF',
-    shadowColor: '#000',
+    backgroundColor: colors.white,
+    shadowColor: colors.shadow,
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
     shadowRadius: 2,
     elevation: 2,
   },
   senderName: {
-    fontSize: 12,
-    color: '#888',
+    fontSize: fonts.sizes.small,
+    fontFamily: fonts.regular,
+    color: colors.textLight,
     marginBottom: 5,
   },
   messageText: {
-    fontSize: 18,
-   color: '#333',
-    lineHeight: 26,
+    fontSize: fonts.sizes.large,
+    fontFamily: fonts.regular,
+    color: colors.text,
+    lineHeight: fonts.lineHeights.large,
   },
   controlArea: {
     padding: 15,
