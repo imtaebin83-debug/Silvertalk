@@ -8,7 +8,7 @@ export const authService = {
     });
 
     // JWT 토큰 저장 (메모리)
-    setToken(data.access_token);
+    await setToken(data.access_token);
 
     return data;
   },
@@ -19,13 +19,25 @@ export const authService = {
   },
 
   // 저장된 토큰 확인
-  getToken() {
-    return getToken();
+  async getToken() { // ✅ 여기에 async 추가
+    return await getToken(); // ✅ 호출할 때도 await 권장
   },
 
   // 로그아웃
-  logout() {
-    clearToken();
+  async logout() {
+    try {
+      console.log('🧹 AsyncStorage 토큰 삭제 중...');
+      
+      // ✅ 서버에도 로그아웃 알림 보내기 (선택 사항)
+      // 이 요청을 보내면 EC2 로그에 "POST /auth/logout"이 찍힙니다.
+      await api.post('/auth/logout'); 
+      
+      await clearToken(); 
+    } catch (error) {
+      console.error('서버 로그아웃 요청 실패:', error);
+      // 서버 요청이 실패하더라도 클라이언트 토큰은 지워야 합니다.
+      await clearToken();
+    }
   },
 
   // 토큰 갱신

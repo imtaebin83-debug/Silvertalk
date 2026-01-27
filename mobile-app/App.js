@@ -2,11 +2,12 @@
  * SilverTalk Mobile App
  * 반려견 AI와 함께하는 회상 치료 서비스
  */
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, ActivityIndicator } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { useFonts } from 'expo-font';
+import { getToken } from './src/api/config';
 
 
 // 전역 테마
@@ -30,8 +31,28 @@ export default function App() {
     'KyoboHandwriting': require('./assets/KyoboHandwriting2019.otf'),
   });
 
+  const [isAutoLoginCheck, setIsAutoLoginCheck] = useState(true); // ✅ 자동 로그인 체크 상태
+  const [initialRoute, setInitialRoute] = useState('Login'); // ✅ 시작 화면 상태
+
+  useEffect(() => {
+    const checkLoginStatus = async () => {
+      try {
+        const token = await getToken(); // ✅ 저장된 토큰이 있는지 확인
+        if (token) {
+          setInitialRoute('Home'); // ✅ 토큰이 있으면 시작 화면을 Home으로 설정
+        }
+      } catch (e) {
+        console.error('자동 로그인 체크 에러:', e);
+      } finally {
+        setIsAutoLoginCheck(false); // ✅ 체크 완료
+      }
+    };
+
+    checkLoginStatus();
+  }, []);
+
   // 폰트 로딩 중이면 로딩 화면 표시 (이게 Splash 역할을 합니다)
-  if (!fontsLoaded) {
+  if (!fontsLoaded || isAutoLoginCheck) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background }}>
         <ActivityIndicator size="large" color={colors.primary} />
@@ -42,7 +63,7 @@ export default function App() {
   return (
     <NavigationContainer theme={navigationTheme}>
       <Stack.Navigator
-        initialRouteName="Login" // 2. 시작 화면을 Login으로 변경
+        initialRouteName={initialRoute} // ✅ 확인된 시작 화면 적용
         screenOptions={{
           headerStyle: {
             backgroundColor: colors.primary,

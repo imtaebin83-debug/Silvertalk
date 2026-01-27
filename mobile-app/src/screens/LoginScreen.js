@@ -13,6 +13,7 @@ import * as WebBrowser from 'expo-web-browser';
 import * as AuthSession from 'expo-auth-session';
 import { colors, fonts, commonStyles } from '../theme';
 import { authService } from '../api/auth';
+import { setToken } from '../api/config';
 
 // 인증 세션 완료 처리
 WebBrowser.maybeCompleteAuthSession();
@@ -70,6 +71,8 @@ const LoginScreen = ({ navigation }) => {
 
           if (tokenData.access_token) {
             console.log('🚀 서버로 토큰 전송 중...');
+
+            await setToken(tokenData.access_token);
             const serverResponse = await authService.kakaoLogin(tokenData.access_token);
             
             Alert.alert('로그인 성공', '반가워요! 복실이가 기다리고 있었어요.');
