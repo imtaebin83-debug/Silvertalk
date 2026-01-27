@@ -75,7 +75,7 @@ def detect_device():
 # AI 모델 전역 변수 (워커 시작 시 한 번만 로드)
 # ============================================================
 whisper_model = None
-tts_model = None
+# tts_model = None  # TTS 제거 (시간 절약)
 gemini_model = None
 
 
@@ -105,61 +105,21 @@ def load_models():
             os.makedirs(whisper_root, exist_ok=True)
             
             logger.info(f"[Whisper] 모델 로딩 시작... (경로: {whisper_root})")
+            # medium: 1.5GB, 한국어 정확도 95%+ (large-v3 대비 약간 하락하지만 충분)
             whisper_model = WhisperModel(
-                model_size_or_path="large-v3",
+                model_size_or_path="medium",
                 device=device,
                 compute_type=compute_type,
                 download_root=whisper_root
             )
-            logger.info(f"✅ Whisper 모델 로딩 완료 (device={device}, path={whisper_root})")
+            logger.info(f"✅ Whisper 모델 로딩 완료 (model=medium, device={device}, path={whisper_root})")
         except Exception as e:
             logger.error(f"❌ Whisper 로딩 실패: {str(e)}")
             logger.error(traceback.format_exc())
             whisper_model = None
     
-    # TTS: Qwen3-TTS CustomVoice 로딩
-    if tts_model is None:
-        try:
-            import torch
-            from qwen_tts import Qwen3TTSModel
-            from huggingface_hub import snapshot_download
-            
-            # RunPod Volume 경로 사용
-            tts_cache_dir = os.path.join(settings.models_root, "qwen3-tts")
-            os.makedirs(tts_cache_dir, exist_ok=True)
-            
-            logger.info("[Qwen3-TTS] 모델 로딩 시작... (최초 5-10분 소요 가능)")
-            
-            # 1단계: Tokenizer 선행 다운로드 (필수)
-            tokenizer_cache_dir = os.path.join(settings.models_root, "qwen3-tts-tokenizer")
-            logger.info("[Qwen3-TTS] Tokenizer 다운로드 중...")
-            snapshot_download(
-                repo_id="Qwen/Qwen3-TTS-Tokenizer-12Hz",
-                cache_dir=tokenizer_cache_dir,
-                local_dir=tokenizer_cache_dir,
-                local_dir_use_symlinks=False
-            )
-            logger.info(f"✅ Tokenizer 다운로드 완료: {tokenizer_cache_dir}")
-            
-            # 2단계: CustomVoice 모델 로딩
-            tts_model = Qwen3TTSModel.from_pretrained(
-                "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
-                device_map="cuda:0" if device == "cuda" else "cpu",
-                dtype=torch.bfloat16 if device == "cuda" else torch.float32,
-                attn_implementation="eager",  # Flash Attention 없이 (빠른 테스트)
-                cache_dir=tts_cache_dir
-            )
-            logger.info(f"✅ Qwen3-TTS 모델 로딩 완료 (device={device})")
-            
-            # 지원 언어/화자 출력
-            logger.info(f"   지원 언어: {tts_model.get_supported_languages()}")
-            logger.info(f"   지원 화자: {tts_model.get_supported_speakers()}")
-            
-        except Exception as e:
-            logger.error(f"❌ Qwen3-TTS 로딩 실패: {str(e)}")
-            logger.error(traceback.format_exc())
-            logger.warning("⚠️ TTS 기능 비활성화 - 텍스트 응답만 가능")
-            tts_model = None
+    # TTS: 제거 (시간 절약, API로 대체 예정)
+    # logger.info("⚠️ TTS 비활성화 - 텍스트 응답만 제공")
     
     # LLM: Gemini 1.5 Flash 초기화
     if gemini_model is None:
@@ -201,7 +161,6 @@ def preload_models(self: Task):
         # 각 모델 로딩 상태 확인
         status = {
             "whisper": "loaded" if whisper_model is not None else "failed",
-            "qwen3_tts": "loaded" if tts_model is not None else "failed",
             "gemini": "loaded" if gemini_model is not None else "failed",
         }
         
@@ -272,18 +231,14 @@ def process_audio_and_reply(self: Task, audio_path: str, user_id: str, session_i
         ai_reply = generate_reply(user_text, user_id, session_id)
         logger.info(f"[Brain] AI 답변: {ai_reply}")
         
-        # Step 3: TTS (텍스트 → 음성)
-        logger.info(f"[TTS] 음성 합성 시작...")
-        output_audio_path = f"/app/data/{user_id}_reply_{self.request.id}.wav"
-        os.makedirs(os.path.dirname(output_audio_path), exist_ok=True)
-        synthesize_speech(ai_reply, output_audio_path)
-        logger.info(f"[TTS] 음성 합성 완료: {output_audio_path}")
+        # Step 3: TTS 제거 (텍스트만 반환)
+        logger.info(f"[완료] 텍스트 응답 생성 완료 (TTS 없음)")
         
         return {
             "status": "success",
             "user_text": user_text,
             "ai_reply": ai_reply,
-            "audio_url": output_audio_path
+            "audio_url": None  # TTS 비활성화
         }
     
     except Exception as e:
@@ -373,40 +328,9 @@ def generate_reply(user_text: str, user_id: str, session_id: str = None) -> str:
 # ============================================================
 # TTS: Qwen3-TTS CustomVoice
 # ============================================================
-def synthesize_speech(text: str, output_path: str):
-    """
-    텍스트를 음성으로 변환 (Qwen3-TTS CustomVoice)
-    
-    공식 문서: https://github.com/QwenLM/Qwen3-TTS
-    
-    Args:
-        text: 합성할 텍스트
-        output_path: 출력 음성 파일 경로
-    """
-    if tts_model is None:
-        raise RuntimeError("Qwen3-TTS 모델이 로딩되지 않았습니다.")
-    
-    try:
-        import soundfile as sf
-        
-        # Qwen3-TTS CustomVoice 생성
-        # Speaker: Sohee (한국어 네이티브 여성 화자)
-        # Instruction: 애교 많은 강아지 느낌
-        wavs, sr = tts_model.generate_custom_voice(
-            text=text,
-            language="Korean",
-            speaker="Sohee",  # 한국어 네이티브 여성 화자
-            instruct="할머니를 정말 좋아하는 애교 많은 강아지처럼, 꼬리를 살랑살랑 흔드는 느낌으로 밝고 다정하게 말해줘."
-        )
-        
-        # 음성 파일 저장 (wavs는 리스트, 첫 번째 요소 사용)
-        sf.write(output_path, wavs[0], sr)
-        logger.info(f"✅ TTS 완료: {output_path} (샘플레이트: {sr} Hz)")
-    
-    except Exception as e:
-        logger.error(f"TTS 실패: {str(e)}")
-        logger.error(traceback.format_exc())
-        raise
+# TTS 함수 제거 (필요 시 API로 대체)
+# def synthesize_speech(text: str, output_path: str):
+#     raise NotImplementedError("TTS는 비활성화되었습니다. API를 사용하세요.")
 
 
 # ============================================================
@@ -465,35 +389,14 @@ def generate_reply_from_text(self: Task, user_text: str, user_id: str, session_i
         # Gemini로 답변 생성
         ai_reply = generate_reply(user_text, user_id, session_id)
         
-        # TTS 음성 생성 (모델이 로딩된 경우만)
-        audio_url = None
-        if tts_model is not None:
-            try:
-                import tempfile
-                from common.s3_client import upload_file
-                
-                # 임시 파일 생성
-                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-                    audio_path = tmp.name
-                
-                # TTS 합성
-                synthesize_speech(ai_reply, audio_path)
-                
-                # S3 업로드
-                audio_url = upload_file(audio_path, f"{user_id}/replies", f"reply_{self.request.id}.wav")
-                
-                # 임시 파일 삭제
-                os.remove(audio_path)
-                
-                logger.info(f"✅ TTS 음성 생성 완료: {audio_url}")
-            except Exception as tts_error:
-                logger.warning(f"⚠️ TTS 실패 (텍스트는 정상): {str(tts_error)}")
+        # TTS 제거 (텍스트만 반환)
+        logger.info(f"✅ AI 답변 생성 완료: {ai_reply[:50]}...")
         
         return {
             "status": "success",
             "user_text": user_text,
             "ai_reply": ai_reply,
-            "audio_url": audio_url,
+            "audio_url": None,  # TTS 비활성화
             "gemini_response": ai_reply  # 테스트 스크립트 호환
         }
     
