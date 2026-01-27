@@ -14,7 +14,12 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.silvertalk.app",
-      "deploymentTarget": "14.0"
+      "deploymentTarget": "14.0",
+      "infoPlist": {
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true
+        }
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -29,7 +34,8 @@
         "RECORD_AUDIO",
         "READ_CALENDAR",
         "ACCESS_FINE_LOCATION"
-      ]
+      ],
+      "usesCleartextTraffic": true
     },
     "web": {
       "favicon": "./assets/favicon.png"

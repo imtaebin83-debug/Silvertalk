@@ -17,8 +17,6 @@ import { colors, fonts } from '../theme';
 const { width } = Dimensions.get('window');
 const PHOTO_SIZE = (width - 60) / 2; // 2열, 좌우 패딩 고려
 
-const { width } = Dimensions.get('window');
-const PHOTO_SIZE = (width - 60) / 2; // 2열, 좌우 패딩 고려
 
 const GalleryScreen = ({ navigation }) => {
   const [photos, setPhotos] = useState([]);

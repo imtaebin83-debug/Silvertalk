@@ -17,7 +17,6 @@ import { colors, fonts } from '../theme';
 
 const { width } = Dimensions.get('window');
 
-const { width } = Dimensions.get('window');
 
 const VideoGalleryScreen = ({ navigation }) => {
   const [videos, setVideos] = useState([]);
