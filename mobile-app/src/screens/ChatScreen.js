@@ -52,7 +52,7 @@ const ChatScreen = ({ route, navigation }) => {
   });
 
   // === 훅 초기화 ===
-  const chatSession = useChatSession();
+  const chatSession = useChatSession({ initialSessionId });
   const voiceRecording = useVoiceRecording();
 
   // === 로컬 메시지 상태 (첫 인사용) ===
@@ -106,34 +106,44 @@ const ChatScreen = ({ route, navigation }) => {
   };
 
   // ============================================================
-  // 녹음 처리 (PTT - Push To Talk)
+  // 녹음 처리 (토글 방식 - 한 번 누르면 시작, 다시 누르면 종료)
   // ============================================================
-  const handleRecordStart = async () => {
-    // IDLE 상태에서만 녹음 시작 가능
-    if (chatSession.chatState !== CHAT_STATES.IDLE) {
-      return;
-    }
-    
-    const success = await voiceRecording.startRecording();
-    if (success) {
-      // 녹음 시작 성공 시 chatSession에 알림 (상태 관리는 useChatSession이 담당)
-      console.log('녹음 시작');
-    }
-  };
-
-  const handleRecordEnd = async () => {
+  const handleMicToggle = async () => {
+    // 녹음 중이 아닐 때 → 녹음 시작
     if (!voiceRecording.isRecording) {
-      return;
+      // IDLE 상태에서만 녹음 시작 가능
+      if (chatSession.chatState !== CHAT_STATES.IDLE) {
+        console.log('⚠️ 현재 상태에서는 녹음 불가:', chatSession.chatState);
+        return;
+      }
+      
+      console.log('🎤 녹음 시작 시도...');
+      const success = await voiceRecording.startRecording();
+      if (success) {
+        chatSession.setRecordingState(true);
+        console.log('✅ 녹음 시작 성공');
+      } else {
+        console.log('❌ 녹음 시작 실패');
+      }
+    } 
+    // 녹음 중일 때 → 녹음 종료 및 전송
+    else {
+      console.log('🛑 녹음 종료 시도...');
+      const audioUri = await voiceRecording.stopRecording();
+      chatSession.setRecordingState(false);
+      
+      if (!audioUri) {
+        console.log('❌ 녹음 파일 없음');
+        Alert.alert('오류', '녹음 파일을 저장할 수 없습니다.');
+        return;
+      }
+      
+      console.log('📤 음성 메시지 전송:', audioUri);
+      console.log('📝 현재 세션 ID:', chatSession.sessionId);
+      
+      // 음성 메시지 전송
+      await chatSession.sendVoiceMessage(audioUri);
     }
-    
-    const audioUri = await voiceRecording.stopRecording();
-    if (!audioUri) {
-      Alert.alert('오류', '녹음 파일을 저장할 수 없습니다.');
-      return;
-    }
-    
-    // 음성 메시지 전송
-    await chatSession.sendVoiceMessage(audioUri);
   };
 
   // ============================================================
@@ -250,9 +260,14 @@ const ChatScreen = ({ route, navigation }) => {
   console.log('🖼️ displayPhotos:', displayPhotos.length, 'currentIndex:', currentPhotoIndex);
   
   const getMicButtonText = () => {
+    // 녹음 중일 때는 항상 '말하는 중...' 표시
+    if (voiceRecording.isRecording) {
+      return '🔴 녹음 중... (누르면 전송)';
+    }
+    
     switch (chatSession.chatState) {
       case CHAT_STATES.RECORDING:
-        return '말하는 중...';
+        return '🔴 녹음 중... (누르면 전송)';
       case CHAT_STATES.UPLOADING:
         return '전송 중...';
       case CHAT_STATES.POLLING:
@@ -264,9 +279,11 @@ const ChatScreen = ({ route, navigation }) => {
     }
   };
 
+  // 토글 방식이므로 녹음 중에도 버튼 활성화 (전송 위해)
   const isMicDisabled = 
-    chatSession.chatState !== CHAT_STATES.IDLE || 
-    voiceRecording.isRecording;
+    chatSession.chatState === CHAT_STATES.UPLOADING || 
+    chatSession.chatState === CHAT_STATES.POLLING ||
+    chatSession.chatState === CHAT_STATES.SPEAKING;
  
   return (
     <View style={styles.container}>
@@ -354,10 +371,9 @@ const ChatScreen = ({ route, navigation }) => {
           style={[
             styles.micButton, 
             voiceRecording.isRecording && styles.micButtonActive,
-            isMicDisabled && !voiceRecording.isRecording && styles.micButtonDisabled,
+            isMicDisabled && styles.micButtonDisabled,
           ]}
-          onPressIn={handleRecordStart}
-          onPressOut={handleRecordEnd}
+          onPress={handleMicToggle}
           disabled={isMicDisabled}
         >
           <Text style={styles.micIcon}>

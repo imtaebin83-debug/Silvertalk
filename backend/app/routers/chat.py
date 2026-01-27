@@ -298,7 +298,7 @@ async def send_message(
 # ============================================================
 @router.post("/messages/voice", summary="음성 메시지 처리")
 async def send_voice_message(
-    session_id: str,
+    session_id: str = Form(...),
     audio_file: UploadFile = File(...),
     db: Session = Depends(get_db)
 ):
@@ -355,11 +355,14 @@ async def send_voice_message(
 # ============================================================
 # AI 응답 저장 (Polling 성공 후 클라이언트에서 호출)
 # ============================================================
+class SaveAIResponseRequest(BaseModel):
+    session_id: str
+    user_text: str
+    ai_reply: str
+
 @router.post("/messages/save-ai-response", summary="AI 응답 저장")
 async def save_ai_response(
-    session_id: str,
-    user_text: str,
-    ai_reply: str,
+    request: SaveAIResponseRequest,
     db: Session = Depends(get_db)
 ):
     """
@@ -367,7 +370,7 @@ async def save_ai_response(
     
     클라이언트에서 task 결과를 받은 후 호출
     """
-    session = db.query(ChatSession).filter(ChatSession.id == uuid.UUID(session_id)).first()
+    session = db.query(ChatSession).filter(ChatSession.id == uuid.UUID(request.session_id)).first()
     
     if not session:
         raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
@@ -384,13 +387,13 @@ async def save_ai_response(
     )
     
     if last_user_log and last_user_log.content == "[음성 메시지]":
-        last_user_log.content = user_text
+        last_user_log.content = request.user_text
     
     # AI 응답 저장
     ai_log = ChatLog(
         session_id=session.id,
         role="assistant",
-        content=ai_reply
+        content=request.ai_reply
     )
     db.add(ai_log)
     db.commit()

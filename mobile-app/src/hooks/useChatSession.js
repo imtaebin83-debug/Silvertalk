@@ -25,12 +25,13 @@ const FALLBACK_RESPONSE = {
 
 /**
  * @param {Object} options - 옵션
+ * @param {string} options.initialSessionId - 초기 세션 ID (GalleryScreen에서 전달)
  * @param {Function} options.onError - 에러 핸들러
  * @returns {Object} 세션 관련 상태와 함수
  */
-const useChatSession = ({ onError } = {}) => {
+const useChatSession = ({ initialSessionId = null, onError } = {}) => {
   // === 세션 상태 ===
-  const [sessionId, setSessionId] = useState(null);
+  const [sessionId, setSessionId] = useState(initialSessionId);
   const [messages, setMessages] = useState([]);
   const [turnCount, setTurnCount] = useState(0);
   const [canFinish, setCanFinish] = useState(false);
@@ -180,8 +181,15 @@ const useChatSession = ({ onError } = {}) => {
   const sendVoiceMessage = useCallback(
     async (audioUri) => {
       try {
+        console.log('📤 sendVoiceMessage 호출');
+        console.log('   - audioUri:', audioUri);
+        console.log('   - sessionId:', sessionId);
+        
         if (!sessionId) {
-          throw new Error('세션이 시작되지 않았습니다.');
+          console.error('❌ 세션 ID가 없습니다!');
+          Alert.alert('오류', '세션이 시작되지 않았습니다. 다시 시도해주세요.');
+          setChatState(CHAT_STATES.IDLE);
+          return { success: false, error: '세션 ID 없음' };
         }
 
         // 상태 변경: UPLOADING
@@ -375,6 +383,25 @@ const useChatSession = ({ onError } = {}) => {
     currentTaskIdRef.current = null;
   }, [stopSpeaking]);
 
+  /**
+   * 녹음 상태 설정 (외부에서 호출)
+   */
+  const setRecordingState = useCallback((isRecording) => {
+    if (isRecording) {
+      setChatState(CHAT_STATES.RECORDING);
+    } else if (chatState === CHAT_STATES.RECORDING) {
+      setChatState(CHAT_STATES.IDLE);
+    }
+  }, [chatState]);
+
+  /**
+   * 세션 ID 수동 설정 (GalleryScreen에서 이미 생성된 경우)
+   */
+  const setSession = useCallback((newSessionId) => {
+    setSessionId(newSessionId);
+    console.log('📝 세션 ID 설정:', newSessionId);
+  }, []);
+
   return {
     // 상태
     sessionId,
@@ -393,6 +420,8 @@ const useChatSession = ({ onError } = {}) => {
     endSession,
     resetSession,
     stopSpeaking,
+    setRecordingState,
+    setSession,
 
     // 상수
     CHAT_STATES,
