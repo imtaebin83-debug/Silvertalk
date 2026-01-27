@@ -13,7 +13,13 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.silvertalk.app"
+      "bundleIdentifier": "com.silvertalk.app",
+      "deploymentTarget": "14.0",
+      "infoPlist": {
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true
+        }
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -28,7 +34,8 @@
         "RECORD_AUDIO",
         "READ_CALENDAR",
         "ACCESS_FINE_LOCATION"
-      ]
+      ],
+      "usesCleartextTraffic": true
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -53,7 +60,8 @@
         {
           "microphonePermission": "할머니의 목소리를 듣기 위해 마이크 권한이 필요합니다."
         }
-      ]
+      ],
+      "expo-font"
     ]
   }
 }
