@@ -167,6 +167,59 @@ def load_models():
 
 
 # ============================================================
+# Celery 태스크: AI 모델 사전 로드
+# ============================================================
+@celery_app.task(bind=True, name="worker.tasks.preload_models")
+def preload_models(self: Task):
+    """
+    AI 모델 사전 로드 (Whisper, Qwen3-TTS, Gemini)
+    
+    첫 태스크 실행 전에 이 task를 실행하면 모델을 미리 다운로드할 수 있습니다.
+    
+    Returns:
+        dict: 각 모델의 로딩 상태
+    """
+    try:
+        logger.info("🚀 AI 모델 사전 로드 시작...")
+        
+        load_models()
+        
+        # 각 모델 로딩 상태 확인
+        status = {
+            "whisper": "loaded" if whisper_model is not None else "failed",
+            "qwen3_tts": "loaded" if tts_model is not None else "failed",
+            "gemini": "loaded" if gemini_model is not None else "failed",
+        }
+        
+        # 모델 저장 경로 확인
+        import subprocess
+        models_info = subprocess.run(
+            ['du', '-sh', f'{settings.models_root}/*'],
+            capture_output=True,
+            text=True
+        )
+        
+        logger.info("✅ AI 모델 사전 로드 완료!")
+        logger.info(f"   모델 상태: {status}")
+        logger.info(f"   저장 경로: {settings.models_root}")
+        
+        return {
+            "status": "success",
+            "models": status,
+            "storage_info": models_info.stdout,
+            "message": "모든 모델 로드 완료"
+        }
+    
+    except Exception as e:
+        logger.error(f"❌ 모델 사전 로드 실패: {str(e)}")
+        logger.error(traceback.format_exc())
+        return {
+            "status": "error",
+            "message": str(e)
+        }
+
+
+# ============================================================
 # Celery 태스크: 음성 대화 처리 (STT + Brain + TTS)
 # ============================================================
 @celery_app.task(bind=True, name="worker.tasks.process_audio_and_reply")
