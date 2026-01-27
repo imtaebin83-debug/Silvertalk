@@ -142,6 +142,51 @@ def load_models():
 
 
 # ============================================================
+# S3에서 음성 파일 다운로드
+# ============================================================
+def download_audio_from_s3(s3_url: str, user_id: str) -> str:
+    """
+    S3 URL에서 음성 파일 다운로드
+    
+    Args:
+        s3_url: S3 URL (https://bucket.s3.region.amazonaws.com/key)
+        user_id: 사용자 ID (임시 파일명용)
+    
+    Returns:
+        str: 로컬 파일 경로
+    """
+    import tempfile
+    import urllib.request
+    import ssl
+    
+    # SSL 컨텍스트 (인증서 검증)
+    ssl_context = ssl.create_default_context()
+    
+    # 임시 파일 경로 생성
+    temp_dir = tempfile.gettempdir()
+    local_path = os.path.join(temp_dir, f"audio_{user_id}_{os.getpid()}.m4a")
+    
+    try:
+        logger.info(f"S3 다운로드: {s3_url} -> {local_path}")
+        
+        # URL로 직접 다운로드 (S3 public URL 가정)
+        urllib.request.urlretrieve(s3_url, local_path)
+        
+        # 파일 존재 확인
+        if not os.path.exists(local_path):
+            raise FileNotFoundError(f"다운로드 파일 없음: {local_path}")
+        
+        file_size = os.path.getsize(local_path)
+        logger.info(f"S3 다운로드 완료: {file_size} bytes")
+        
+        return local_path
+        
+    except Exception as e:
+        logger.error(f"S3 다운로드 실패: {str(e)}")
+        raise RuntimeError(f"S3 음성 파일 다운로드 실패: {str(e)}")
+
+
+# ============================================================
 # Celery 태스크: AI 모델 사전 로드
 # ============================================================
 @celery_app.task(bind=True, name="worker.tasks.preload_models")
@@ -197,17 +242,17 @@ def preload_models(self: Task):
 # Celery 태스크: 음성 대화 처리 (STT + Brain + TTS)
 # ============================================================
 @celery_app.task(bind=True, name="worker.tasks.process_audio_and_reply")
-def process_audio_and_reply(self: Task, audio_path: str, user_id: str, session_id: str = None):
+def process_audio_and_reply(self: Task, audio_url: str, user_id: str, session_id: str = None):
     """
     음성 파일을 받아 AI 대화 처리
     
     Flow:
-    1. STT: Faster-Whisper로 음성 → 텍스트
-    2. Brain: Gemini로 대화 생성
-    3. TTS: Qwen3-TTS로 텍스트 → 음성
+    1. S3에서 음성 파일 다운로드
+    2. STT: Faster-Whisper로 음성 → 텍스트
+    3. Brain: Gemini로 대화 생성
     
     Args:
-        audio_path: 업로드된 음성 파일 경로
+        audio_url: S3 URL (EC2에서 업로드됨)
         user_id: 사용자 ID
         session_id: 대화 세션 ID (옵션)
     
@@ -215,17 +260,30 @@ def process_audio_and_reply(self: Task, audio_path: str, user_id: str, session_i
         dict: {
             "user_text": 사용자 음성 텍스트,
             "ai_reply": AI 답변 텍스트,
-            "audio_url": TTS 생성 음성 파일 경로
+            "sentiment": 감정
         }
     """
     try:
         # 모델 로딩 (첫 실행 시에만)
         load_models()
         
+        # S3에서 음성 파일 다운로드
+        logger.info(f"[S3] 음성 파일 다운로드 시작: {audio_url}")
+        local_audio_path = download_audio_from_s3(audio_url, user_id)
+        logger.info(f"[S3] 다운로드 완료: {local_audio_path}")
+        
         # Step 1: STT (음성 → 텍스트)
-        logger.info(f"[STT] 음성 인식 시작: {audio_path}")
-        user_text = transcribe_audio(audio_path)
+        logger.info(f"[STT] 음성 인식 시작: {local_audio_path}")
+        user_text = transcribe_audio(local_audio_path)
         logger.info(f"[STT] 인식 결과: {user_text}")
+        
+        # 다운로드한 임시 파일 삭제
+        try:
+            if os.path.exists(local_audio_path):
+                os.remove(local_audio_path)
+                logger.info(f"[S3] 임시 파일 삭제: {local_audio_path}")
+        except Exception as e:
+            logger.warning(f"임시 파일 삭제 실패 (무시): {e}")
         
         # Step 2: Brain (Gemini로 대화 생성 - JSON 반환)
         logger.info(f"[Brain] AI 답변 생성 중...")
@@ -314,6 +372,7 @@ def generate_reply(user_text: str, user_id: str, session_id: str = None) -> dict
     try:
         # 회상 치료 프롬프트 (JSON 강제)
         prompt = f"""당신은 노인 회상 치료를 돕는 친근한 AI 상담사입니다.
+당신은 '복실이'라는 이름의 강아지 캐릭터입니다. 
 
 사용자 말: {user_text}
 
@@ -322,34 +381,54 @@ def generate_reply(user_text: str, user_id: str, session_id: str = None) -> dict
 2. 과거 기억을 떠올릴 수 있는 질문을 포함하세요.
 3. 2-3문장으로 간결하게 답변하세요.
 4. 존댓말을 사용하세요.
+5. 가끔 "멍!" 또는 "왈왈!"을 붙여주세요.
 
-**중요: 반드시 JSON 형식으로만 답변하세요.**
-출력 형식:
+**중요: 반드시 아래의 JSON 형식으로만 답변하세요. 다른 텍스트는 포함하지 마세요.**
 {{
   "text": "답변 내용",
   "sentiment": "happy|sad|curious|excited|nostalgic|comforting"
 }}
 """
         
-        # JSON 출력 강제 설정
-        import google.generativeai as genai
-        response = gemini_model.generate_content(
-            prompt,
-            generation_config=genai.GenerationConfig(
-                response_mime_type="application/json"
-            )
-        )
+        # 기본 설정으로 응답 생성 (response_mime_type 제거 - 버전 호환성)
+        response = gemini_model.generate_content(prompt)
         
         # 응답 파싱
         if response and response.text:
             import json
-            ai_reply = json.loads(response.text.strip())
+            import re
             
-            # 필수 필드 확인
-            if "text" in ai_reply and "sentiment" in ai_reply:
-                logger.info(f"Gemini 답변 성공: {ai_reply['text'][:50]}...")
-                return ai_reply
-            else:
+            # JSON 추출 (마크다운 코드블록 처리)
+            response_text = response.text.strip()
+            
+            # ```json ... ``` 또는 ``` ... ``` 패턴 제거
+            json_match = re.search(r'```(?:json)?\s*(.*?)\s*```', response_text, re.DOTALL)
+            if json_match:
+                response_text = json_match.group(1)
+            
+            # { ... } 패턴 추출
+            json_match = re.search(r'\{[^{}]*\}', response_text, re.DOTALL)
+            if json_match:
+                response_text = json_match.group(0)
+            
+            try:
+                ai_reply = json.loads(response_text)
+                
+                # 필수 필드 확인
+                if "text" in ai_reply and "sentiment" in ai_reply:
+                    logger.info(f"Gemini 답변 성공: {ai_reply['text'][:50]}...")
+                    return ai_reply
+                else:
+                    logger.warning("Gemini 응답에 필수 필드 누락, Fallback 사용")
+                    return FALLBACK_RESPONSE
+            except json.JSONDecodeError as e:
+                logger.warning(f"JSON 파싱 실패: {e}, 원본: {response_text[:100]}")
+                # JSON 파싱 실패 시 텍스트를 직접 사용
+                return {
+                    "text": response.text.strip()[:200],
+                    "sentiment": "comforting"
+                }
+        else:
                 logger.warning("Gemini 응답에 필수 필드 누락, Fallback 사용")
                 return FALLBACK_RESPONSE
         else:

@@ -316,26 +316,46 @@ async def send_voice_message(
     if not session:
         raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
     
-    # 음성 파일 저장 (임시) - EC2/Docker 환경 모두 대응
+    # 음성 파일을 S3에 업로드 (RunPod에서 접근 가능하도록)
     import os
+    from common.s3_client import S3Client, S3Error
     
-    # 환경에 따라 경로 결정
+    # 임시 로컬 저장 (S3 업로드 전)
     if os.path.exists("/app"):
-        # Docker 환경
         data_dir = "/app/data"
     else:
-        # EC2 환경 - 현재 작업 디렉토리 기준
         base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         data_dir = os.path.join(base_dir, "data")
     
     os.makedirs(data_dir, exist_ok=True)
-    audio_path = os.path.join(data_dir, f"{session.user_id}_{audio_file.filename}")
+    audio_filename = f"{session.user_id}_{audio_file.filename}"
+    local_audio_path = os.path.join(data_dir, audio_filename)
     
-    with open(audio_path, "wb") as f:
-        content = await audio_file.read()
+    # 로컬에 임시 저장
+    content = await audio_file.read()
+    with open(local_audio_path, "wb") as f:
         f.write(content)
     
-    print(f"📁 음성 파일 저장: {audio_path}")
+    print(f"📁 음성 파일 임시 저장: {local_audio_path}")
+    
+    # S3에 업로드
+    try:
+        s3_client = S3Client()
+        s3_key = f"audio/voice_messages/{session_id}/{audio_filename}"
+        s3_url = s3_client.upload_file(
+            local_path=local_audio_path,
+            s3_key=s3_key,
+            content_type="audio/m4a"
+        )
+        print(f"☁️ S3 업로드 완료: {s3_url}")
+    except S3Error as e:
+        print(f"❌ S3 업로드 실패: {e}")
+        raise HTTPException(status_code=500, detail=f"음성 파일 업로드 실패: {str(e)}")
+    finally:
+        # 로컬 임시 파일 삭제 (선택적)
+        if os.path.exists(local_audio_path):
+            os.remove(local_audio_path)
+            print(f"🗑️ 임시 파일 삭제: {local_audio_path}")
     
     # 사용자 음성 메시지 ChatLog 저장
     user_log = ChatLog(
@@ -349,10 +369,10 @@ async def send_voice_message(
     session.turn_count += 1
     db.commit()
     
-    # Celery 태스크 실행
+    # Celery 태스크 실행 (S3 URL 전달)
     task = celery_app.send_task(
         "worker.tasks.process_audio_and_reply",
-        args=[audio_path, str(session.user_id), str(session.id)],
+        args=[s3_url, str(session.user_id), str(session.id)],
         queue="ai_tasks"
     )
     
