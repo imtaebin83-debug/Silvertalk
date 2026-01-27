@@ -1,8 +1,14 @@
 /**
  * 대화 화면
  * 설계도 7-8번: 대표 사진 크게 표시, 연관 사진으로 넘기기, 3턴 후 종료 가능
+ * 
+ * 상태 머신:
+ * - IDLE: 대기 (버튼 클릭 가능)
+ * - RECORDING: 녹음 중 (PTT)
+ * - PROCESSING: Polling 중 (버튼 비활성화)
+ * - SPEAKING: TTS 재생 중 (버튼 비활성화)
  */
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -15,126 +21,280 @@ import {
   Dimensions,
   ActivityIndicator,
 } from 'react-native';
-import { Audio } from 'expo-av';
 import { colors, fonts } from '../theme';
+import api, { uploadFormData, pollTaskResult } from '../api/config';
+import useVoiceRecording from '../hooks/useVoiceRecording';
+import usePolling from '../hooks/usePolling';
+import { speak, stopSpeaking } from '../utils/speech';
+import DogAnimation from '../components/DogAnimation';
 
 const { width } = Dimensions.get('window');
+
+// 상태 머신 상태 정의
+const STATES = {
+  IDLE: 'IDLE',
+  RECORDING: 'RECORDING',
+  PROCESSING: 'PROCESSING',
+  SPEAKING: 'SPEAKING',
+};
  
 const ChatScreen = ({ route, navigation }) => {
   const { photoId, photoUrl, photoDate } = route.params;
  
+  // === 세션 상태 ===
   const [sessionId, setSessionId] = useState(null);
   const [messages, setMessages] = useState([]);
-  const [isRecording, setIsRecording] = useState(false);
-  const [recording, setRecording] = useState(null);
   const [turnCount, setTurnCount] = useState(0);
- 
- // 연관 사진들 (비슷한 날짜의 사진 4장)
+  const [canFinish, setCanFinish] = useState(false);
+  
+  // === 상태 머신 ===
+  const [chatState, setChatState] = useState(STATES.IDLE);
+  const [emotion, setEmotion] = useState('neutral');
+  
+  // === 연관 사진 ===
   const [relatedPhotos, setRelatedPhotos] = useState([]);
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
  
-  // 팝업 및 로딩 상태
+  // === 모달 상태 ===
   const [showEndModal, setShowEndModal] = useState(false);
   const [showVideoModal, setShowVideoModal] = useState(false);
   const [isCreatingVideo, setIsCreatingVideo] = useState(false);
- 
+  const [videoTaskId, setVideoTaskId] = useState(null);
+  
+  // === 훅 ===
+  const voiceRecording = useVoiceRecording();
+  const polling = usePolling({ interval: 1000, timeout: 60000 });
+  
+  // === Refs ===
+  const scrollViewRef = useRef(null);
+
+  // ============================================================
+  // 초기화
+  // ============================================================
   useEffect(() => {
     startChatSession();
     fetchRelatedPhotos();
+    
+    // 클린업: 언마운트 시 TTS 중지
+    return () => {
+      stopSpeaking();
+    };
   }, []);
- 
+
+  // 새 메시지 시 스크롤
+  useEffect(() => {
+    if (scrollViewRef.current) {
+      scrollViewRef.current.scrollToEnd({ animated: true });
+    }
+  }, [messages]);
+
+  // ============================================================
+  // API 호출 함수들
+  // ============================================================
   const startChatSession = async () => {
     try {
-      // API 호출 (추후 구현)
-      // const response = await axios.post('http://localhost:8000/chat/sessions', {
-      //   kakao_id: 'test',
-      //   photo_id: photoId
-      // });
-      // setSessionId(response.data.id);
- 
-      setSessionId('temp-session-id');
-      addMessage('assistant', '우와, 할머니 이 사진 어디서 찍은 거예요? 정말 멋진 곳이네요!');
+      const response = await api.post('/chat/sessions', {
+        photo_id: photoId,
+      });
+      
+      setSessionId(response.id);
+      
+      // 첫 인사 메시지
+      const greeting = response.greeting || '우와, 할머니 이 사진 어디서 찍은 거예요? 정말 멋진 곳이네요!';
+      addMessage('assistant', greeting);
+      
+      // TTS로 읽기
+      setChatState(STATES.SPEAKING);
+      setEmotion('happy');
+      await speak(greeting);
+      setChatState(STATES.IDLE);
+      setEmotion('neutral');
+      
     } catch (error) {
       console.error('세션 시작 실패:', error);
-      Alert.alert('오류', '대화를 시작할 수 없습니다.');
+      
+      // 오프라인 모드 (데모용)
+      setSessionId('demo-session-id');
+      const demoGreeting = '우와, 할머니 이 사진 어디서 찍은 거예요? 정말 멋진 곳이네요!';
+      addMessage('assistant', demoGreeting);
+      
+      setChatState(STATES.SPEAKING);
+      setEmotion('happy');
+      await speak(demoGreeting);
+      setChatState(STATES.IDLE);
+      setEmotion('neutral');
     }
   };
  
   const fetchRelatedPhotos = async () => {
     try {
-      // API 호출: 비슷한 날짜의 사진 4장 가져오기 (추후 구현)
-      // const response = await axios.get(`http://localhost:8000/photos/related?photo_id=${photoId}`);
-      // setRelatedPhotos(response.data);
- 
-      // 임시 데이터 - 연관 사진 4장
+      // API 호출: 비슷한 날짜의 사진 4장 가져오기
+      const response = await api.get(`/gallery/photos/related?photo_id=${photoId}`);
+      setRelatedPhotos(response);
+    } catch (error) {
+      console.error('연관 사진 불러오기 실패:', error);
+      // 임시 데이터
       setRelatedPhotos([
         { id: photoId, url: photoUrl, date: photoDate },
         { id: '2', url: 'https://via.placeholder.com/400', date: photoDate },
         { id: '3', url: 'https://via.placeholder.com/400', date: photoDate },
         { id: '4', url: 'https://via.placeholder.com/400', date: photoDate },
       ]);
-    } catch (error) {
-      console.error('연관 사진 불러오기 실패:', error);
     }
   };
- 
+
+  // ============================================================
+  // 메시지 관리
+  // ============================================================
   const addMessage = (role, content) => {
-    setMessages((prev) => [...prev, { role, content }]);
-    if (role === 'user') {
-      setTurnCount((prev) => prev + 1);
+    setMessages((prev) => [...prev, { role, content, timestamp: new Date() }]);
+  };
+
+  // ============================================================
+  // 녹음 처리 (PTT - Push To Talk)
+  // ============================================================
+  const handleRecordStart = async () => {
+    if (chatState !== STATES.IDLE) return;
+    
+    const success = await voiceRecording.startRecording();
+    if (success) {
+      setChatState(STATES.RECORDING);
+      setEmotion('listening');
     }
   };
- 
-  const startRecording = async () => {
+
+  const handleRecordEnd = async () => {
+    if (chatState !== STATES.RECORDING) return;
+    
+    const audioUri = await voiceRecording.stopRecording();
+    if (!audioUri) {
+      setChatState(STATES.IDLE);
+      setEmotion('neutral');
+      return;
+    }
+    
+    // UI에 임시 메시지 추가
+    addMessage('user', '[음성 인식 중...]');
+    
+    // 서버로 전송
+    await sendVoiceMessage(audioUri);
+  };
+
+  const sendVoiceMessage = async (audioUri) => {
+    setChatState(STATES.PROCESSING);
+    setEmotion('thinking');
+    
     try {
-      const permission = await Audio.requestPermissionsAsync();
-      if (!permission.granted) {
-        Alert.alert('권한 필요', '마이크 권한이 필요합니다.');
-        return;
-      }
- 
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
+      // FormData 생성
+      const formData = new FormData();
+      formData.append('session_id', sessionId);
+      formData.append('audio_file', {
+        uri: audioUri,
+        type: 'audio/x-m4a',
+        name: 'recording.m4a',
       });
- 
-      const { recording } = await Audio.Recording.createAsync(
-        Audio.RecordingOptionsPresets.HIGH_QUALITY
-      );
- 
-      setRecording(recording);
-      setIsRecording(true);
+      
+      // 서버로 전송
+      const response = await uploadFormData('/chat/messages/voice', formData);
+      
+      if (response.task_id) {
+        setTurnCount(response.turn_count || turnCount + 1);
+        setCanFinish(response.can_finish || false);
+        
+        // Polling 시작
+        await pollForResult(response.task_id);
+      } else {
+        throw new Error('Task ID를 받지 못했습니다.');
+      }
+      
     } catch (error) {
-      console.error('녹음 시작 실패:', error);
-      Alert.alert('오류', '녹음을 시작할 수 없습니다.');
+      console.error('음성 전송 실패:', error);
+      
+      // 에러 시 마지막 메시지 수정
+      setMessages(prev => {
+        const newMessages = [...prev];
+        const lastIndex = newMessages.length - 1;
+        if (newMessages[lastIndex]?.content === '[음성 인식 중...]') {
+          newMessages[lastIndex].content = '[전송 실패]';
+        }
+        return newMessages;
+      });
+      
+      Alert.alert('오류', '음성을 전송할 수 없습니다. 다시 시도해주세요.');
+      setChatState(STATES.IDLE);
+      setEmotion('neutral');
     }
   };
- 
-  const stopRecording = async () => {
-    try {
-      setIsRecording(false);
-      await recording.stopAndUnloadAsync();
-      const uri = recording.getURI();
- 
-      addMessage('user', '[음성 메시지]');
- 
-      // API 전송 (추후 구현)
-      // const formData = new FormData();
-      // formData.append('audio_file', { uri, type: 'audio/x-m4a', name: 'recording.m4a' });
-      // formData.append('session_id', sessionId);
-      // const response = await axios.post('http://localhost:8000/chat/messages/voice', formData);
- 
-      setTimeout(() => {
-        addMessage('assistant', '아~ 정말 좋은 추억이네요! 더 들려주세요~');
-      }, 2000);
- 
-      setRecording(null);
-    } catch (error) {
-      console.error('녹음 중지 실패:', error);
-      Alert.alert('오류', '녹음을 처리할 수 없습니다.');
-    }
+
+  // ============================================================
+  // Polling 처리
+  // ============================================================
+  const pollForResult = async (taskId) => {
+    polling.startPolling(
+      taskId,
+      // 성공 콜백
+      async (result) => {
+        const { user_text, reply, sentiment } = result;
+        
+        // 사용자 메시지 업데이트
+        setMessages(prev => {
+          const newMessages = [...prev];
+          const lastUserIndex = newMessages.findIndex(
+            msg => msg.content === '[음성 인식 중...]'
+          );
+          if (lastUserIndex !== -1) {
+            newMessages[lastUserIndex].content = user_text || '[인식 실패]';
+          }
+          return newMessages;
+        });
+        
+        // AI 응답 추가
+        addMessage('assistant', reply);
+        
+        // 감정 설정
+        setEmotion(sentiment || 'neutral');
+        
+        // 서버에 대화 저장
+        try {
+          await api.post('/chat/messages/save-ai-response', {
+            session_id: sessionId,
+            user_text: user_text || '',
+            ai_reply: reply,
+          });
+        } catch (e) {
+          console.warn('대화 저장 실패:', e);
+        }
+        
+        // TTS 재생
+        setChatState(STATES.SPEAKING);
+        await speak(reply);
+        
+        setChatState(STATES.IDLE);
+        setEmotion('neutral');
+      },
+      // 실패 콜백
+      (error) => {
+        console.error('Polling 실패:', error);
+        
+        setMessages(prev => {
+          const newMessages = [...prev];
+          const lastIndex = newMessages.length - 1;
+          if (newMessages[lastIndex]?.content === '[음성 인식 중...]') {
+            newMessages[lastIndex].content = '[처리 실패]';
+          }
+          return newMessages;
+        });
+        
+        Alert.alert('오류', error || '응답을 받지 못했습니다.');
+        setChatState(STATES.IDLE);
+        setEmotion('neutral');
+      }
+    );
   };
- 
+
+  // ============================================================
+  // 사진 네비게이션
+  // ============================================================
   const handleNextPhoto = () => {
     if (currentPhotoIndex < relatedPhotos.length - 1) {
       setCurrentPhotoIndex((prev) => prev + 1);
@@ -147,12 +307,16 @@ const ChatScreen = ({ route, navigation }) => {
       setCurrentPhotoIndex((prev) => prev - 1);
     }
   };
- 
+
+  // ============================================================
+  // 대화 종료 처리
+  // ============================================================
   const handleEndChat = () => {
-    if (turnCount < 3) {
+    if (!canFinish && turnCount < 3) {
       Alert.alert('조금 더 이야기해요', '조금 더 대화한 후에 종료할 수 있어요.');
       return;
     }
+    stopSpeaking();
     setShowEndModal(true);
   };
  
@@ -163,22 +327,102 @@ const ChatScreen = ({ route, navigation }) => {
     }
   };
  
-  const confirmCreateVideo = (wantToCreate) => {
+  const confirmCreateVideo = async (wantToCreate) => {
     setShowVideoModal(false);
+    
     if (wantToCreate) {
       setIsCreatingVideo(true);
-      // 영상 생성 API 호출 (추후 구현)
-      setTimeout(() => {
+      
+      try {
+        // 영상 생성 API 호출
+        const response = await api.post('/chat/sessions/end', {
+          session_id: sessionId,
+          create_video: true,
+        });
+        
+        if (response.video_task_id) {
+          setVideoTaskId(response.video_task_id);
+          // 영상 생성 Polling (최대 3분)
+          await pollForVideo(response.video_task_id);
+        } else {
+          throw new Error('영상 생성을 시작할 수 없습니다.');
+        }
+        
+      } catch (error) {
+        console.error('영상 생성 실패:', error);
         setIsCreatingVideo(false);
-        Alert.alert('완료', '영상이 만들어졌어요! 추억 극장에서 확인해보세요.');
+        Alert.alert('완료', '대화가 저장되었어요. 영상 생성에 실패했습니다.');
         navigation.navigate('Home');
-      }, 3000);
+      }
     } else {
+      // 영상 없이 종료
+      try {
+        await api.post('/chat/sessions/end', {
+          session_id: sessionId,
+          create_video: false,
+        });
+      } catch (e) {
+        console.warn('세션 종료 실패:', e);
+      }
       navigation.navigate('Home');
     }
   };
- 
+
+  const pollForVideo = async (taskId) => {
+    const startTime = Date.now();
+    const timeout = 180000; // 3분
+    
+    while (Date.now() - startTime < timeout) {
+      try {
+        const result = await api.get(`/api/task/${taskId}`);
+        
+        if (result.status === 'SUCCESS') {
+          setIsCreatingVideo(false);
+          Alert.alert('완료', '영상이 만들어졌어요! 추억 극장에서 확인해보세요.');
+          navigation.navigate('Home');
+          return;
+        }
+        
+        if (result.status === 'FAILURE') {
+          throw new Error(result.error || '영상 생성 실패');
+        }
+        
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+      } catch (error) {
+        console.error('영상 Polling 오류:', error);
+        setIsCreatingVideo(false);
+        Alert.alert('완료', '대화가 저장되었어요. 영상은 나중에 확인해주세요.');
+        navigation.navigate('Home');
+        return;
+      }
+    }
+    
+    // 타임아웃
+    setIsCreatingVideo(false);
+    Alert.alert('완료', '영상이 만들어지고 있어요. 추억 극장에서 나중에 확인해주세요.');
+    navigation.navigate('Home');
+  };
+
+  // ============================================================
+  // 렌더링 헬퍼
+  // ============================================================
   const currentPhoto = relatedPhotos[currentPhotoIndex] || { url: photoUrl };
+  
+  const getMicButtonText = () => {
+    switch (chatState) {
+      case STATES.RECORDING:
+        return '말하는 중...';
+      case STATES.PROCESSING:
+        return '듣고 있어요...';
+      case STATES.SPEAKING:
+        return '복실이가 말해요';
+      default:
+        return '눌러서 말하기';
+    }
+  };
+
+  const isMicDisabled = chatState !== STATES.IDLE;
  
   return (
     <View style={styles.container}>
@@ -223,7 +467,11 @@ const ChatScreen = ({ route, navigation }) => {
       </View>
  
       {/* 대화 내역 */}
-      <ScrollView style={styles.chatArea} contentContainerStyle={styles.chatContent}>
+      <ScrollView 
+        ref={scrollViewRef}
+        style={styles.chatArea} 
+        contentContainerStyle={styles.chatContent}
+      >
         {messages.map((msg, index) => (
           <View
             key={index}
@@ -238,23 +486,48 @@ const ChatScreen = ({ route, navigation }) => {
             <Text style={styles.messageText}>{msg.content}</Text>
           </View>
         ))}
+        
+        {/* 처리 중 애니메이션 */}
+        {chatState === STATES.PROCESSING && (
+          <View style={styles.animationContainer}>
+            <DogAnimation 
+              emotion={emotion} 
+              isAnimating={true}
+              customMessage="복실이가 생각하고 있어요..."
+            />
+          </View>
+        )}
       </ScrollView>
  
       {/* 하단 컨트롤 영역 */}
       <View style={styles.controlArea}>
         <TouchableOpacity
-          style={[styles.micButton, isRecording && styles.micButtonActive]}
-          onPressIn={startRecording}
-          onPressOut={stopRecording}
+          style={[
+            styles.micButton, 
+            chatState === STATES.RECORDING && styles.micButtonActive,
+            isMicDisabled && chatState !== STATES.RECORDING && styles.micButtonDisabled,
+          ]}
+          onPressIn={handleRecordStart}
+          onPressOut={handleRecordEnd}
+          disabled={isMicDisabled}
         >
-          <Text style={styles.micIcon}>🎤</Text>
+          <Text style={styles.micIcon}>
+            {chatState === STATES.SPEAKING ? '🐕' : '🎤'}
+          </Text>
           <Text style={styles.micButtonText}>
-            {isRecording ? '말하는 중...' : '눌러서 말하기'}
+            {getMicButtonText()}
           </Text>
         </TouchableOpacity>
  
-        {turnCount >= 3 && (
-          <TouchableOpacity style={styles.endButton} onPress={handleEndChat}>
+        {(canFinish || turnCount >= 3) && (
+          <TouchableOpacity 
+            style={[
+              styles.endButton,
+              isMicDisabled && styles.endButtonDisabled,
+            ]} 
+            onPress={handleEndChat}
+            disabled={isMicDisabled}
+          >
             <Text style={styles.endButtonText}>대화 종료</Text>
           </TouchableOpacity>
         )}
@@ -484,6 +757,10 @@ const styles = StyleSheet.create({
   micButtonActive: {
     backgroundColor: '#FF6347',
   },
+  micButtonDisabled: {
+    backgroundColor: '#CCCCCC',
+    opacity: 0.7,
+  },
   micIcon: {
     fontSize: 28,
   },
@@ -499,6 +776,10 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 30,
     borderRadius: 12,
+  },
+  endButtonDisabled: {
+    backgroundColor: '#CCCCCC',
+    opacity: 0.7,
   },
   endButtonText: {
     fontSize: 18,
@@ -561,6 +842,10 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#888',
     marginTop: 10,
+  },
+  animationContainer: {
+    alignItems: 'center',
+    paddingVertical: 20,
   },
 });
  

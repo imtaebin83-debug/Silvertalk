@@ -68,3 +68,69 @@ const api = {
 };
 
 export default api;
+
+// ============================================================
+// FormData 업로드 (음성 파일 전송용)
+// ============================================================
+export const uploadFormData = async (endpoint, formData) => {
+  const url = `${API_BASE_URL}${endpoint}`;
+  const headers = {};
+  
+  // JWT 토큰 추가
+  const token = getToken();
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  // Content-Type은 자동 설정 (multipart/form-data)
+  
+  const response = await fetch(url, {
+    method: 'POST',
+    headers,
+    body: formData,
+  });
+  
+  return response.json();
+};
+
+// ============================================================
+// Task Polling (1초 간격, 60초 타임아웃)
+// ============================================================
+export const pollTaskResult = async (taskId, options = {}) => {
+  const {
+    interval = 1000,      // 1초 간격
+    timeout = 60000,      // 60초 타임아웃
+    onProgress = null,    // 진행 콜백
+  } = options;
+  
+  const startTime = Date.now();
+  
+  while (Date.now() - startTime < timeout) {
+    try {
+      const result = await api.get(`/api/task/${taskId}`);
+      
+      // 진행 콜백 호출
+      if (onProgress) {
+        onProgress(result);
+      }
+      
+      // 완료 또는 실패 시 반환
+      if (result.status === 'SUCCESS') {
+        return { success: true, data: result };
+      }
+      
+      if (result.status === 'FAILURE') {
+        return { success: false, error: result.error || '처리 실패' };
+      }
+      
+      // 아직 처리 중이면 대기
+      await new Promise(resolve => setTimeout(resolve, interval));
+      
+    } catch (error) {
+      console.error('Polling error:', error);
+      return { success: false, error: error.message };
+    }
+  }
+  
+  // 타임아웃
+  return { success: false, error: '처리 시간이 초과되었습니다.' };
+};
