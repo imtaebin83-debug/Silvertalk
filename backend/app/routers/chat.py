@@ -370,6 +370,7 @@ async def send_voice_message(
     db.commit()
     
     # Celery 태스크 실행 (S3 URL 전달)
+    # 기본 queue 사용 (RunPod worker가 구독 중인 queue)
     task = celery_app.send_task(
         "worker.tasks.process_audio_and_reply",
         args=[s3_url, str(session.user_id), str(session.id)],
