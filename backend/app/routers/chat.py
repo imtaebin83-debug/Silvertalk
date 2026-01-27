@@ -316,13 +316,26 @@ async def send_voice_message(
     if not session:
         raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
     
-    # 음성 파일 저장 (임시)
+    # 음성 파일 저장 (임시) - EC2/Docker 환경 모두 대응
     import os
-    os.makedirs("/app/data", exist_ok=True)
-    audio_path = f"/app/data/{session.user_id}_{audio_file.filename}"
+    
+    # 환경에 따라 경로 결정
+    if os.path.exists("/app"):
+        # Docker 환경
+        data_dir = "/app/data"
+    else:
+        # EC2 환경 - 현재 작업 디렉토리 기준
+        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        data_dir = os.path.join(base_dir, "data")
+    
+    os.makedirs(data_dir, exist_ok=True)
+    audio_path = os.path.join(data_dir, f"{session.user_id}_{audio_file.filename}")
+    
     with open(audio_path, "wb") as f:
         content = await audio_file.read()
         f.write(content)
+    
+    print(f"📁 음성 파일 저장: {audio_path}")
     
     # 사용자 음성 메시지 ChatLog 저장
     user_log = ChatLog(
