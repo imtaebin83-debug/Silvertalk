@@ -38,7 +38,7 @@ class CreateSessionRequest(BaseModel):
 
 class ChatSessionResponse(BaseModel):
     id: str
-    main_photo_id: Optional[str]
+    main_photo_id: Optional[str] = None
     turn_count: int
     is_completed: bool
     status: str
@@ -46,6 +46,18 @@ class ChatSessionResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+    @classmethod
+    def from_session(cls, session):
+        """ChatSession 모델을 응답 스키마로 변환"""
+        return cls(
+            id=str(session.id),
+            main_photo_id=str(session.main_photo_id) if session.main_photo_id else None,
+            turn_count=session.turn_count,
+            is_completed=session.is_completed,
+            status=session.status.value if hasattr(session.status, 'value') else str(session.status),
+            created_at=session.created_at
+        )
 
 
 class ChatLogResponse(BaseModel):
@@ -132,7 +144,7 @@ async def start_chat_session(
     db.commit()
     db.refresh(session)
 
-    return session
+    return ChatSessionResponse.from_session(session)
 
 
 # ============================================================
