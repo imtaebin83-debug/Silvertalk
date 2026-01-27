@@ -25,6 +25,7 @@
     "expo-image-picker": "~14.7.0",
     "expo-location": "~16.5.0",
     "expo-media-library": "~15.9.0",
+    "expo-modules-core": "^3.0.29",
     "expo-secure-store": "~12.8.1",
     "expo-speech": "~11.7.0",
     "expo-splash-screen": "~0.26.5",
@@ -40,7 +41,9 @@
     "react-native-web": "~0.19.6"
   },
   "devDependencies": {
-    "@babel/core": "^7.23.0"
+    "@babel/core": "^7.23.0",
+    "charenc": "^0.0.2",
+    "crypt": "^0.0.2"
   },
   "private": true
 }
