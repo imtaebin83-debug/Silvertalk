@@ -51,15 +51,12 @@ const ChatScreen = ({ route, navigation }) => {
     allPhotoUrlsLength: allPhotoUrls?.length
   });
 
-  // === 세션 상태 ===
-  const [sessionId, setSessionId] = useState(initialSessionId);
-  const [messages, setMessages] = useState([]);
-  const [turnCount, setTurnCount] = useState(0);
-  const [canFinish, setCanFinish] = useState(false);
+  // === 훅 초기화 ===
+  const chatSession = useChatSession();
+  const voiceRecording = useVoiceRecording();
 
-  // === 상태 머신 ===
-  const [chatState, setChatState] = useState(STATES.IDLE);
-  const [emotion, setEmotion] = useState('neutral');
+  // === 로컬 메시지 상태 (첫 인사용) ===
+  const [localMessages, setLocalMessages] = useState([]);
 
   // === 연관 사진 (S3 URL 사용) ===
   const [relatedPhotos, setRelatedPhotos] = useState(
@@ -88,14 +85,15 @@ const ChatScreen = ({ route, navigation }) => {
     return () => {
       chatSession.stopSpeaking();
     };
-  }, [photoId]);
+  }, [initialSessionId]);
 
   // 새 메시지 시 스크롤
   useEffect(() => {
-    if (scrollViewRef.current && chatSession.messages.length > 0) {
+    const allMessages = [...localMessages, ...chatSession.messages];
+    if (scrollViewRef.current && allMessages.length > 0) {
       scrollViewRef.current.scrollToEnd({ animated: true });
     }
-  }, [chatSession.messages]);
+  }, [localMessages, chatSession.messages]);
 
   // ============================================================
   // API 호출 함수들
@@ -103,21 +101,8 @@ const ChatScreen = ({ route, navigation }) => {
   const startGreeting = async () => {
     // 첫 인사 메시지
     const greeting = '우와, 할머니 이 사진 어디서 찍은 거예요? 정말 멋진 곳이네요!';
-    addMessage('assistant', greeting);
-
-    // TTS로 읽기
-    setChatState(STATES.SPEAKING);
-    setEmotion('happy');
-    await speak(greeting);
-    setChatState(STATES.IDLE);
-    setEmotion('neutral');
-  };
-
-  // ============================================================
-  // 메시지 관리
-  // ============================================================
-  const addMessage = (role, content) => {
-    setMessages((prev) => [...prev, { role, content, timestamp: new Date() }]);
+    setLocalMessages([{ role: 'assistant', content: greeting, timestamp: new Date() }]);
+    console.log('🐕 첫 인사:', greeting);
   };
 
   // ============================================================
@@ -155,11 +140,11 @@ const ChatScreen = ({ route, navigation }) => {
   // 사진 네비게이션
   // ============================================================
   const handleNextPhoto = () => {
-    if (currentPhotoIndex < chatSession.relatedPhotos.length - 1) {
+    if (currentPhotoIndex < relatedPhotos.length - 1) {
       setCurrentPhotoIndex((prev) => prev + 1);
     }
   };
- 
+
   const handlePrevPhoto = () => {
     if (currentPhotoIndex > 0) {
       setCurrentPhotoIndex((prev) => prev - 1);
@@ -255,11 +240,14 @@ const ChatScreen = ({ route, navigation }) => {
   // ============================================================
   // 렌더링 헬퍼
   // ============================================================
-  const displayPhotos = chatSession.relatedPhotos.length > 0 
-    ? chatSession.relatedPhotos 
-    : [{ id: photoId, url: photoUrl, date: photoDate }];
-  
+  const displayPhotos = relatedPhotos.length > 0
+    ? relatedPhotos
+    : [{ id: 'main', url: photoUrl, date: photoDate }];
+
   const currentPhoto = displayPhotos[currentPhotoIndex] || { url: photoUrl };
+
+  // 디버그: 현재 표시할 사진 정보
+  console.log('🖼️ displayPhotos:', displayPhotos.length, 'currentIndex:', currentPhotoIndex);
   
   const getMicButtonText = () => {
     switch (chatSession.chatState) {
@@ -327,12 +315,12 @@ const ChatScreen = ({ route, navigation }) => {
       </View>
  
       {/* 대화 내역 */}
-      <ScrollView 
+      <ScrollView
         ref={scrollViewRef}
-        style={styles.chatArea} 
+        style={styles.chatArea}
         contentContainerStyle={styles.chatContent}
       >
-        {chatSession.messages.map((msg, index) => (
+        {[...localMessages, ...chatSession.messages].map((msg, index) => (
           <View
             key={index}
             style={[
