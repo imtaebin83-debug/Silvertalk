@@ -106,14 +106,63 @@ def load_models():
             os.makedirs(whisper_root, exist_ok=True)
             
             logger.info(f"[Whisper] 모델 로딩 시작... (경로: {whisper_root})")
-            # medium: 1.5GB, 한국어 정확도 95%+ (large-v3 대비 약간 하락하지만 충분)
-            whisper_model = WhisperModel(
-                model_size_or_path="medium",
-                device=device,
-                compute_type=compute_type,
-                download_root=whisper_root
-            )
-            logger.info(f"✅ Whisper 모델 로딩 완료 (model=medium, device={device}, path={whisper_root})")
+            
+            # CUDA 시도 (cuDNN + libcublas 라이브러리 사전 체크)
+            if device == "cuda":
+                try:
+                    # CUDA 필수 라이브러리 사전 체크
+                    import ctypes
+                    
+                    # 1. cuDNN 체크
+                    try:
+                        ctypes.CDLL("libcudnn_ops_infer.so.8")
+                        logger.info("✅ cuDNN 라이브러리 확인 완료")
+                    except OSError as e:
+                        raise Exception(f"cuDNN 라이브러리 누락: {e}")
+                    
+                    # 2. libcublas 체크 (CUDA 11.x 또는 12.x)
+                    cublas_found = False
+                    for cublas_ver in ["libcublas.so.11", "libcublas.so.12"]:
+                        try:
+                            ctypes.CDLL(cublas_ver)
+                            logger.info(f"✅ {cublas_ver} 확인 완료")
+                            cublas_found = True
+                            break
+                        except OSError:
+                            continue
+                    
+                    if not cublas_found:
+                        raise Exception("libcublas 라이브러리 누락 (11 또는 12 버전 필요)")
+                    
+                    # 라이브러리 체크 통과 → Whisper 모델 로딩
+                    whisper_model = WhisperModel(
+                        model_size_or_path="medium",
+                        device=device,
+                        compute_type=compute_type,
+                        download_root=whisper_root
+                    )
+                    logger.info(f"✅ Whisper 모델 로딩 완료 (model=medium, device={device}, path={whisper_root})")
+                
+                except Exception as cuda_error:
+                    logger.warning(f"⚠️ CUDA 라이브러리 체크 실패: {cuda_error}")
+                    logger.warning("⚠️ CPU 모드로 강제 전환")
+                    whisper_model = WhisperModel(
+                        model_size_or_path="medium",
+                        device="cpu",
+                        compute_type="int8",
+                        download_root=whisper_root
+                    )
+                    logger.info(f"✅ Whisper 모델 로딩 완료 (model=medium, device=cpu, path={whisper_root})")
+            
+            else:
+                # CPU 모드 직접 로딩
+                whisper_model = WhisperModel(
+                    model_size_or_path="medium",
+                    device="cpu",
+                    compute_type="int8",
+                    download_root=whisper_root
+                )
+                logger.info(f"✅ Whisper 모델 로딩 완료 (model=medium, device=cpu, path={whisper_root})")
         except Exception as e:
             logger.error(f"❌ Whisper 로딩 실패: {str(e)}")
             logger.error(traceback.format_exc())
@@ -132,9 +181,9 @@ def load_models():
                 raise ValueError("GEMINI_API_KEY 환경 변수가 설정되지 않았습니다.")
             
             genai.configure(api_key=api_key)
-            # 최신 안정 버전 사용 (API 키 재발급 후 gemini-1.5-flash로 변경 가능)
-            gemini_model = genai.GenerativeModel("gemini-1.5-flash-latest")
-            logger.info("✅ Gemini 1.5 Flash 초기화 완료")
+            # gemini-2.0-flash-exp (최신 버전, 팀원 검증 완료)
+            gemini_model = genai.GenerativeModel("gemini-2.0-flash-exp")
+            logger.info("✅ Gemini 2.0 Flash 초기화 완료")
         except Exception as e:
             logger.error(f"❌ Gemini 초기화 실패: {str(e)}")
             logger.error(traceback.format_exc())
