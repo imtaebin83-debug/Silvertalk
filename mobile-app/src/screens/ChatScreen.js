@@ -48,6 +48,15 @@ const ChatScreen = ({ route, navigation }) => {
     mainPhotoIndex = 0  // 선택한 메인 사진의 인덱스
   } = route.params;
 
+  // 디버그 로그
+  console.log('📸 ChatScreen params:', {
+    sessionId: initialSessionId,
+    photoUrl,
+    allPhotoUrls,
+    mainPhotoIndex,
+    allPhotoUrlsLength: allPhotoUrls?.length
+  });
+
   // === 세션 상태 ===
   const [sessionId, setSessionId] = useState(initialSessionId);
   const [messages, setMessages] = useState([]);
