@@ -24,6 +24,16 @@ celery_app = Celery(
     backend=settings.redis_url
 )
 
+# ai_tasks queue 설정 (RunPod worker와 일치해야 함)
+from kombu import Queue, Exchange
+celery_app.conf.task_queues = (
+    Queue('celery', Exchange('celery'), routing_key='celery'),
+    Queue('ai_tasks', Exchange('ai_tasks', type='direct'), routing_key='ai_tasks'),
+)
+celery_app.conf.task_default_queue = 'celery'
+celery_app.conf.task_default_exchange = 'celery'
+celery_app.conf.task_default_routing_key = 'celery'
+
 router = APIRouter(prefix="/chat", tags=["대화 서비스 (Chat & Memory)"])
 
 
