@@ -11,8 +11,8 @@ flower==2.0.1
 # AI Models
 faster-whisper==0.10.0
 google-generativeai==0.3.2
-# Qwen3-TTS (설치: pip install git+https://github.com/QwenLM/Qwen3-TTS.git)
-# qwen-tts는 PyPI에 없으므로 수동 설치 필요 (RUNPOD_FIX_ERRORS.md 참조)
+# Qwen3-TTS (공식 PyPI 패키지)
+qwen-tts>=0.1.0
 
 # Audio/Video Processing
 ffmpeg-python==0.2.0
