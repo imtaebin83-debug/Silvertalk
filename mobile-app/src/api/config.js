@@ -1,4 +1,4 @@
-// EC2 서버 주소
+// EC2 서버 주소 (HTTPS)
 export const API_BASE_URL = 'http://54.180.28.75:8000';
 
 // 메모리에 토큰 저장 (앱 재시작 시 초기화됨)

@@ -27,6 +27,7 @@
       <dict>
         <key>CFBundleURLSchemes</key>
         <array>
+          <string>silvertalk</string>
           <string>com.silvertalk.app</string>
         </array>
       </dict>

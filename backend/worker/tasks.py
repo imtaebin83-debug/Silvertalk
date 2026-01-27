@@ -1,7 +1,8 @@
 """
-Celery AI 처리 태스크 (Qwen3-TTS 버전)
+Celery AI 처리 태스크 (TTS 제거 버전)
 - 동적 디바이스 감지 (CUDA/CPU 자동 전환)
-- AI 모델: Faster-Whisper (STT), Gemini (LLM), Qwen3-TTS (TTS)
+- AI 모델: Faster-Whisper (STT), Gemini (LLM)
+- TTS는 클라이언트 expo-speech로 대체
 - CUDA 충돌 방지: Lazy 초기화 + 명시적 .env 로드
 """
 
@@ -231,14 +232,16 @@ def process_audio_and_reply(self: Task, audio_path: str, user_id: str, session_i
         ai_reply = generate_reply(user_text, user_id, session_id)
         logger.info(f"[Brain] AI 답변: {ai_reply}")
         
-        # Step 3: TTS 제거 (텍스트만 반환)
-        logger.info(f"[완료] 텍스트 응답 생성 완료 (TTS 없음)")
+        # Step 3: 감정 분석 (클라이언트 애니메이션 연동)
+        sentiment = analyze_sentiment(ai_reply)
+        logger.info(f"[완료] 텍스트 응답 생성 완료 (sentiment={sentiment})")
         
         return {
             "status": "success",
             "user_text": user_text,
             "ai_reply": ai_reply,
-            "audio_url": None  # TTS 비활성화
+            "sentiment": sentiment,
+            "session_id": session_id  # 클라이언트에서 DB 저장용
         }
     
     except Exception as e:
@@ -326,11 +329,41 @@ def generate_reply(user_text: str, user_id: str, session_id: str = None) -> str:
 
 
 # ============================================================
-# TTS: Qwen3-TTS CustomVoice
+# 감정 분석 (애니메이션 연동용)
 # ============================================================
-# TTS 함수 제거 (필요 시 API로 대체)
-# def synthesize_speech(text: str, output_path: str):
-#     raise NotImplementedError("TTS는 비활성화되었습니다. API를 사용하세요.")
+def analyze_sentiment(text: str) -> str:
+    """
+    AI 답변의 감정을 분석하여 강아지 애니메이션 결정
+    
+    Args:
+        text: AI 답변 텍스트
+    
+    Returns:
+        str: "happy" | "curious" | "nostalgic" | "excited" | "comforting"
+    """
+    # 키워드 기반 감정 분석
+    happy_keywords = ["좋", "기뻐", "행복", "웃", "재밌", "신나", "멋지"]
+    curious_keywords = ["뭐", "어디", "누구", "언제", "왜", "어떻게", "?"]
+    nostalgic_keywords = ["추억", "옛날", "그때", "기억", "예전", "어릴", "오래"]
+    excited_keywords = ["와", "우와", "대박", "정말", "진짜", "!"]
+    
+    text_lower = text.lower()
+    
+    # 우선순위: curious > nostalgic > excited > happy > comforting
+    for kw in curious_keywords:
+        if kw in text_lower:
+            return "curious"
+    for kw in nostalgic_keywords:
+        if kw in text_lower:
+            return "nostalgic"
+    for kw in excited_keywords:
+        if kw in text_lower:
+            return "excited"
+    for kw in happy_keywords:
+        if kw in text_lower:
+            return "happy"
+    
+    return "comforting"  # 기본값: 따뜻한 위로
 
 
 # ============================================================
@@ -389,14 +422,16 @@ def generate_reply_from_text(self: Task, user_text: str, user_id: str, session_i
         # Gemini로 답변 생성
         ai_reply = generate_reply(user_text, user_id, session_id)
         
-        # TTS 제거 (텍스트만 반환)
-        logger.info(f"✅ AI 답변 생성 완료: {ai_reply[:50]}...")
+        # 감정 분석
+        sentiment = analyze_sentiment(ai_reply)
+        logger.info(f"✅ AI 답변 생성 완료: {ai_reply[:50]}... (sentiment={sentiment})")
         
         return {
             "status": "success",
             "user_text": user_text,
             "ai_reply": ai_reply,
-            "audio_url": None,  # TTS 비활성화
+            "sentiment": sentiment,
+            "session_id": session_id,
             "gemini_response": ai_reply  # 테스트 스크립트 호환
         }
     
@@ -550,12 +585,17 @@ def generate_memory_video(
         logger.info(f"[영상 생성] 내레이션: {narration_text[:100]}...")
 
         # ============================================================
-        # Step 3: TTS 내레이션 생성 (Qwen3-TTS)
+        # Step 3: 배경음악 설정 (TTS 제거됨)
         # ============================================================
-        logger.info(f"[영상 생성] Step 3: TTS 음성 생성")
-        narration_audio_path = f"/app/data/video_{video_id}_narration.wav"
-        temp_files.append(narration_audio_path)
-        synthesize_speech(narration_text, narration_audio_path)
+        logger.info(f"[영상 생성] Step 3: 배경음악 설정 (TTS 제거)")
+        # BGM 파일이 없으면 무음으로 처리
+        bgm_path = os.path.join(settings.models_root, "bgm", "emotional_bgm.mp3")
+        if os.path.exists(bgm_path):
+            narration_audio_path = bgm_path
+            logger.info(f"[영상 생성] BGM 사용: {bgm_path}")
+        else:
+            narration_audio_path = None
+            logger.warning(f"[영상 생성] BGM 파일 없음, 무음으로 생성")
 
         # ============================================================
         # Step 4: 영상 생성
@@ -568,9 +608,9 @@ def generate_memory_video(
             # FFmpeg 슬라이드쇼 생성
             generate_slideshow(
                 image_paths=local_photo_paths,
-                audio_path=narration_audio_path,
+                audio_path=narration_audio_path,  # BGM 또는 None
                 output_path=output_video_path,
-                duration_per_image=3.0
+                duration_per_image=4.0  # 사진당 4초 (어르신 시청 고려)
             )
         else:
             # Replicate SVD 애니메이션 (기존 로직)

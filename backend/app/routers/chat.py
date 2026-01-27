@@ -270,7 +270,7 @@ async def send_message(
 
 
 # ============================================================
-# 음성 메시지 처리 (STT + Brain + TTS)
+# 음성 메시지 처리 (STT + Brain)
 # ============================================================
 @router.post("/messages/voice", summary="음성 메시지 처리")
 async def send_voice_message(
@@ -279,40 +279,101 @@ async def send_voice_message(
     db: Session = Depends(get_db)
 ):
     """
-    음성 메시지 전송 및 처리
+    음성 메시지 전송 및 처리 (TTS 제거됨)
     
     Flow:
-    1. STT: 음성 → 텍스트
-    2. Brain: Gemini로 대화 생성
-    3. TTS: 텍스트 → 음성
+    1. 음성 파일 저장
+    2. Celery 태스크 큐잉 (STT + LLM)
+    3. 클라이언트에서 Polling으로 결과 확인
+    4. 클라이언트에서 expo-speech로 TTS 재생
     """
     session = db.query(ChatSession).filter(ChatSession.id == uuid.UUID(session_id)).first()
     
     if not session:
         raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
     
-    # 음성 파일 저장
+    # 음성 파일 저장 (임시)
+    import os
+    os.makedirs("/app/data", exist_ok=True)
     audio_path = f"/app/data/{session.user_id}_{audio_file.filename}"
     with open(audio_path, "wb") as f:
         content = await audio_file.read()
         f.write(content)
     
-    # Celery 태스크 실행 (이름으로 호출)
+    # 사용자 음성 메시지 ChatLog 저장
+    user_log = ChatLog(
+        session_id=session.id,
+        role="user",
+        content="[음성 메시지]"  # STT 결과로 나중에 업데이트됨
+    )
+    db.add(user_log)
+    
+    # 턴 수 증가
+    session.turn_count += 1
+    db.commit()
+    
+    # Celery 태스크 실행
     task = celery_app.send_task(
         "worker.tasks.process_audio_and_reply",
         args=[audio_path, str(session.user_id), str(session.id)],
         queue="ai_tasks"
     )
     
-    # 턴 수 증가
-    session.turn_count += 1
-    db.commit()
-    
     return {
         "task_id": task.id,
         "status": "processing",
-        "message": "AI가 듣고 있어요...",
-        "turn_count": session.turn_count
+        "message": "복실이가 듣고 있어요...",
+        "turn_count": session.turn_count,
+        "can_finish": session.turn_count >= 3
+    }
+
+
+# ============================================================
+# AI 응답 저장 (Polling 성공 후 클라이언트에서 호출)
+# ============================================================
+@router.post("/messages/save-ai-response", summary="AI 응답 저장")
+async def save_ai_response(
+    session_id: str,
+    user_text: str,
+    ai_reply: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Polling 완료 후 AI 응답을 ChatLog에 저장
+    
+    클라이언트에서 task 결과를 받은 후 호출
+    """
+    session = db.query(ChatSession).filter(ChatSession.id == uuid.UUID(session_id)).first()
+    
+    if not session:
+        raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
+    
+    # 마지막 사용자 메시지 업데이트 (STT 결과)
+    last_user_log = (
+        db.query(ChatLog)
+        .filter(
+            ChatLog.session_id == session.id,
+            ChatLog.role == "user"
+        )
+        .order_by(ChatLog.created_at.desc())
+        .first()
+    )
+    
+    if last_user_log and last_user_log.content == "[음성 메시지]":
+        last_user_log.content = user_text
+    
+    # AI 응답 저장
+    ai_log = ChatLog(
+        session_id=session.id,
+        role="assistant",
+        content=ai_reply
+    )
+    db.add(ai_log)
+    db.commit()
+    
+    return {
+        "status": "success",
+        "message": "대화가 저장되었습니다."
     }
 
 

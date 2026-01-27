@@ -166,13 +166,28 @@ async def health_check():
 @app.get("/api/task/{task_id}", tags=["System"])
 async def get_task_result(task_id: str):
     """
-    Celery 태스크 결과 조회 (범용)
+    Celery 태스크 결과 조회 (Polling용)
+    
+    프론트엔드에서 1초 간격으로 호출하여 AI 처리 상태 확인
     
     Returns:
-        - state: PENDING, STARTED, SUCCESS, FAILURE
-        - result: 처리 결과
+        - status: pending, processing, success, error
+        - 어르신 친화적인 메시지 포함
     """
     from worker.celery_app import celery_app
+    
+    # 어르신 친화적 메시지
+    PENDING_MESSAGES = [
+        "복실이가 준비하고 있어요...",
+        "잠깐만요, 복실이가 귀 기울이고 있어요!",
+    ]
+    PROCESSING_MESSAGES = [
+        "복실이가 열심히 듣고 있어요...",
+        "복실이가 생각하고 있어요...",
+        "복실이가 대답을 준비하고 있어요!",
+    ]
+    
+    import random
     
     try:
         task = celery_app.AsyncResult(task_id)
@@ -181,37 +196,45 @@ async def get_task_result(task_id: str):
             return {
                 "task_id": task_id,
                 "status": "pending",
-                "message": "작업이 대기 중입니다."
+                "message": random.choice(PENDING_MESSAGES)
             }
-        elif task.state == "STARTED":
+        elif task.state == "STARTED" or task.state == "PROGRESS":
             return {
                 "task_id": task_id,
                 "status": "processing",
-                "message": "AI가 처리 중입니다..."
+                "message": random.choice(PROCESSING_MESSAGES)
             }
         elif task.state == "SUCCESS":
+            result = task.result
             return {
                 "task_id": task_id,
                 "status": "success",
-                "result": task.result
+                "user_text": result.get("user_text", ""),
+                "ai_reply": result.get("ai_reply", ""),
+                "sentiment": result.get("sentiment", "comforting"),
+                "session_id": result.get("session_id")
             }
         elif task.state == "FAILURE":
             return {
                 "task_id": task_id,
-                "status": "failed",
-                "error": str(task.info)
+                "status": "error",
+                "message": "앗, 잠깐 문제가 생겼어요. 다시 말씀해주세요!",
+                "error_detail": str(task.info) if task.info else None
             }
         else:
             return {
                 "task_id": task_id,
-                "status": task.state.lower()
+                "status": task.state.lower(),
+                "message": "처리 중이에요..."
             }
     
     except Exception as e:
         logger.error(f"태스크 조회 오류: {str(e)}")
         return {
+            "task_id": task_id,
             "status": "error",
-            "message": str(e)
+            "message": "다시 시도해주세요.",
+            "error_detail": str(e)
         }
 
 
