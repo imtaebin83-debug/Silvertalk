@@ -40,17 +40,15 @@ async def lifespan(app: FastAPI):
     # 시작 시
     logger.info("🚀 SilverTalk API 시작 중...")
     logger.info("📊 데이터베이스 초기화 중...")
-    # TODO: 실제 DB 초기화 로직 추가
     try:
         init_db()
         logger.info("✅ 데이터베이스 연결 완료")
     except Exception as e:
         logger.warning(f"⚠️ 데이터베이스 연결 실패: {e}")
         logger.warning("DB 없이 계속 진행...")
-        logger.info("✅ 데이터베이스 초기화 완료")
-        
-        yield
-    
+
+    yield  # 앱 실행
+
     # 종료 시
     logger.info("👋 SilverTalk API 종료 중...")
 
@@ -106,7 +104,7 @@ app.include_router(auth.router)
 #app.include_router(auth.router, prefix="/auth", tags=["Authentication"])
 app.include_router(users.router)
 app.include_router(home.router)
-app.include_router(gallery.router)
+app.include_router(gallery.router, prefix="/photos", tags=["Gallery"])
 app.include_router(calendar.router)
 app.include_router(chat.router)
 app.include_router(video.router)
