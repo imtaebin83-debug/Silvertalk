@@ -71,12 +71,18 @@ CUDA_LIB_PATH="/usr/local/cuda/targets/x86_64-linux/lib"
 if [ ! -f "$CUDA_LIB_PATH/libcublas.so.12" ] && [ -f "$CUDA_LIB_PATH/libcublas.so.11" ]; then
     echo "  └─ libcublas.so.11 → libcublas.so.12 링크 생성"
     ln -sf "$CUDA_LIB_PATH/libcublas.so.11" "$CUDA_LIB_PATH/libcublas.so.12"
+    ln -sf "$CUDA_LIB_PATH/libcublas.so.11.11.4.6" "$CUDA_LIB_PATH/libcublas.so.12" 2>/dev/null || true
 fi
 
 if [ ! -f "$CUDA_LIB_PATH/libcublasLt.so.12" ] && [ -f "$CUDA_LIB_PATH/libcublasLt.so.11" ]; then
     echo "  └─ libcublasLt.so.11 → libcublasLt.so.12 링크 생성"
     ln -sf "$CUDA_LIB_PATH/libcublasLt.so.11" "$CUDA_LIB_PATH/libcublasLt.so.12"
+    ln -sf "$CUDA_LIB_PATH/libcublasLt.so.11.11.4.6" "$CUDA_LIB_PATH/libcublasLt.so.12" 2>/dev/null || true
 fi
+
+# LD_LIBRARY_PATH 설정 권장
+echo "  └─ LD_LIBRARY_PATH 설정 권장:"
+echo "     export LD_LIBRARY_PATH=$CUDA_LIB_PATH:\$LD_LIBRARY_PATH"
 
 # ldconfig 갱신
 ldconfig
@@ -84,6 +90,8 @@ ldconfig
 echo "  └─ ldconfig 갱신 완료"
 echo ""
 echo "확인:"
+ls -la "$CUDA_LIB_PATH"/libcublas.so.* 2>/dev/null | head -6
+echo ""
 ldconfig -p | grep -E "libcublas.so.(11|12)" | head -4
 
 # 4. FFmpeg 확인 (이미 설치되어 있으면 스킵)
@@ -145,10 +153,13 @@ echo "✅ 권장 사항:"
 echo "   - Volume에 설치되어 영구 보존됨"
 echo "   - Worker 재시작 시 자동으로 사용됨"
 echo ""
+echo "⚠️  중요: Worker 시작 전 환경변수 설정 필수"
+echo "   export LD_LIBRARY_PATH=/usr/local/cuda/targets/x86_64-linux/lib:\$LD_LIBRARY_PATH"
+echo ""
 echo "👉 다음 단계:"
-echo "   1. 재진단 (선택):"
-echo "      bash worker/check_runpod_environment.sh"
+echo "   1. 환경변수 설정:"
+echo "      export LD_LIBRARY_PATH=/usr/local/cuda/targets/x86_64-linux/lib:\$LD_LIBRARY_PATH"
+echo "      export \$(cat .env | xargs)"
 echo ""
 echo "   2. Worker 시작:"
-echo "      cd /workspace/Silvertalk/backend"
-echo "      celery -A worker.celery_app worker --loglevel=info --concurrency=4"
+echo "      celery -A worker.celery_app worker --loglevel=info -Q ai_tasks --concurrency=1"
