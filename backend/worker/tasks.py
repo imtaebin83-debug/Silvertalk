@@ -107,14 +107,34 @@ def load_models():
             
             logger.info(f"[Whisper] 모델 로딩 시작... (경로: {whisper_root})")
             
-            # CUDA 시도 (cuDNN 라이브러리 사전 체크 포함)
+            # CUDA 시도 (cuDNN + libcublas 라이브러리 사전 체크)
             if device == "cuda":
                 try:
-                    # cuDNN 라이브러리 존재 여부 사전 체크
+                    # CUDA 필수 라이브러리 사전 체크
                     import ctypes
-                    ctypes.CDLL("libcudnn_ops_infer.so.8")
-                    logger.info("✅ cuDNN 라이브러리 확인 완료")
                     
+                    # 1. cuDNN 체크
+                    try:
+                        ctypes.CDLL("libcudnn_ops_infer.so.8")
+                        logger.info("✅ cuDNN 라이브러리 확인 완료")
+                    except OSError as e:
+                        raise Exception(f"cuDNN 라이브러리 누락: {e}")
+                    
+                    # 2. libcublas 체크 (CUDA 11.x 또는 12.x)
+                    cublas_found = False
+                    for cublas_ver in ["libcublas.so.11", "libcublas.so.12"]:
+                        try:
+                            ctypes.CDLL(cublas_ver)
+                            logger.info(f"✅ {cublas_ver} 확인 완료")
+                            cublas_found = True
+                            break
+                        except OSError:
+                            continue
+                    
+                    if not cublas_found:
+                        raise Exception("libcublas 라이브러리 누락 (11 또는 12 버전 필요)")
+                    
+                    # 라이브러리 체크 통과 → Whisper 모델 로딩
                     whisper_model = WhisperModel(
                         model_size_or_path="medium",
                         device=device,
@@ -123,8 +143,8 @@ def load_models():
                     )
                     logger.info(f"✅ Whisper 모델 로딩 완료 (model=medium, device={device}, path={whisper_root})")
                 
-                except (OSError, Exception) as cuda_error:
-                    logger.warning(f"⚠️ CUDA/cuDNN 로딩 실패: {cuda_error}")
+                except Exception as cuda_error:
+                    logger.warning(f"⚠️ CUDA 라이브러리 체크 실패: {cuda_error}")
                     logger.warning("⚠️ CPU 모드로 강제 전환")
                     whisper_model = WhisperModel(
                         model_size_or_path="medium",
@@ -161,9 +181,9 @@ def load_models():
                 raise ValueError("GEMINI_API_KEY 환경 변수가 설정되지 않았습니다.")
             
             genai.configure(api_key=api_key)
-            # gemini-1.5-flash (안정 버전, v1beta 지원)
-            gemini_model = genai.GenerativeModel("gemini-1.5-flash")
-            logger.info("✅ Gemini 1.5 Flash 초기화 완료")
+            # gemini-2.0-flash-exp (최신 버전, 팀원 검증 완료)
+            gemini_model = genai.GenerativeModel("gemini-2.0-flash-exp")
+            logger.info("✅ Gemini 2.0 Flash 초기화 완료")
         except Exception as e:
             logger.error(f"❌ Gemini 초기화 실패: {str(e)}")
             logger.error(traceback.format_exc())
