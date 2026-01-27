@@ -62,6 +62,30 @@ ldconfig -p | grep -E "libcublas|libcudnn" | head -5
 CUDA_VERSION=$(nvcc --version 2>/dev/null | grep "release" | awk '{print $6}' | cut -d',' -f1 || echo "unknown")
 echo "CUDA Version: $CUDA_VERSION"
 
+# libcublas 심볼릭 링크 생성 (CUDA 11 → 12 호환)
+echo ""
+echo "🔗 libcublas 호환성 링크 생성..."
+CUDA_LIB_PATH="/usr/local/cuda/targets/x86_64-linux/lib"
+
+# libcublas.so.12가 없으면 .11에서 링크 생성
+if [ ! -f "$CUDA_LIB_PATH/libcublas.so.12" ] && [ -f "$CUDA_LIB_PATH/libcublas.so.11" ]; then
+    echo "  └─ libcublas.so.11 → libcublas.so.12 링크 생성"
+    ln -sf "$CUDA_LIB_PATH/libcublas.so.11" "$CUDA_LIB_PATH/libcublas.so.12"
+fi
+
+if [ ! -f "$CUDA_LIB_PATH/libcublasLt.so.12" ] && [ -f "$CUDA_LIB_PATH/libcublasLt.so.11" ]; then
+    echo "  └─ libcublasLt.so.11 → libcublasLt.so.12 링크 생성"
+    ln -sf "$CUDA_LIB_PATH/libcublasLt.so.11" "$CUDA_LIB_PATH/libcublasLt.so.12"
+fi
+
+# ldconfig 갱신
+ldconfig
+
+echo "  └─ ldconfig 갱신 완료"
+echo ""
+echo "확인:"
+ldconfig -p | grep -E "libcublas.so.(11|12)" | head -4
+
 # 4. FFmpeg 확인 (이미 설치되어 있으면 스킵)
 echo "🎬 [4/5] FFmpeg 확인..."
 if command -v ffmpeg &> /dev/null; then
