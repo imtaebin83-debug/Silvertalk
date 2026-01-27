@@ -82,6 +82,12 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# app/main.py
+@app.get("/auth/kakao/callback")
+async def kakao_callback(code: str):
+    # 클로드 코드(앱)가 기다리고 있는 주소로 튕겨줍니다!
+    return RedirectResponse(url=f"silvertalk://auth?code={code}")
+
 # CORS 설정 (React Native 앱 연결)
 app.add_middleware(
     CORSMiddleware,
