@@ -17,9 +17,9 @@
 - **Async Worker:** Celery 5.3 + Redis 7.2
 - **AI Models:**
   - **STT:** Faster-Whisper (Large-v3) - 한국어 음성 인식
-  - **LLM:** Google Gemini 1.5 Flash - 대화 생성
+  - **LLM:** Google Gemini 2.0 Flash - 대화 생성
   - **TTS:** Coqui XTTS v2 - 음성 합성 (손주 목소리)
-  - **Vision:** Gemini 1.5 Flash - 이미지 분석
+  - **Vision:** Gemini 2.0 Flash - 이미지 분석
 
 ### Frontend (Mobile)
 - **Framework:** React Native Expo 50.0
