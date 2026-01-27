@@ -1,35 +1,36 @@
-// EC2 서버 주소 (HTTPS)
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
 export const API_BASE_URL = 'http://54.180.28.75:8000';
 
-// 메모리에 토큰 저장 (앱 재시작 시 초기화됨)
-let accessToken = null;
-
-export const setToken = (token) => {
-  accessToken = token;
+// ✅ 비동기 방식으로 토큰 저장
+export const setToken = async (token) => {
+  await AsyncStorage.setItem('userToken', token);
 };
 
-export const getToken = () => {
-  return accessToken;
+// ✅ 비동기 방식으로 토큰 가져오기
+export const getToken = async () => {
+  return await AsyncStorage.getItem('userToken');
 };
 
-export const clearToken = () => {
-  accessToken = null;
+// ✅ 비동기 방식으로 토큰 삭제
+export const clearToken = async () => {
+  await AsyncStorage.removeItem('userToken');
 };
 
-// fetch 래퍼 함수
 const api = {
   async request(endpoint, options = {}) {
     const url = `${API_BASE_URL}${endpoint}`;
+    
+    // ✅ 저장소에서 실시간으로 토큰 확인
+    const token = await getToken();
 
-    // 기본 헤더
     const headers = {
       'Content-Type': 'application/json',
       ...options.headers,
     };
 
-    // JWT 토큰 추가
-    if (accessToken) {
-      headers['Authorization'] = `Bearer ${accessToken}`;
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
     }
 
     const response = await fetch(url, {
@@ -37,6 +38,7 @@ const api = {
       headers,
     });
 
+    // 401 에러(토큰 만료) 처리 로직을 여기에 추가할 수 있습니다.
     return response;
   },
 
