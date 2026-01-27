@@ -157,8 +157,9 @@ def load_models():
                 raise ValueError("GEMINI_API_KEY 환경 변수가 설정되지 않았습니다.")
             
             genai.configure(api_key=api_key)
-            gemini_model = genai.GenerativeModel("gemini-pro")
-            logger.info("✅ Gemini Pro 초기화 완료")
+            # 최신 안정 버전 사용 (API 키 재발급 후 gemini-1.5-flash로 변경 가능)
+            gemini_model = genai.GenerativeModel("gemini-1.5-flash-latest")
+            logger.info("✅ Gemini 1.5 Flash 초기화 완료")
         except Exception as e:
             logger.error(f"❌ Gemini 초기화 실패: {str(e)}")
             logger.error(traceback.format_exc())
@@ -309,6 +310,8 @@ def synthesize_speech(text: str, output_path: str):
     """
     텍스트를 음성으로 변환 (Qwen3-TTS CustomVoice)
     
+    공식 문서: https://github.com/QwenLM/Qwen3-TTS
+    
     Args:
         text: 합성할 텍스트
         output_path: 출력 음성 파일 경로
@@ -317,8 +320,10 @@ def synthesize_speech(text: str, output_path: str):
         raise RuntimeError("Qwen3-TTS 모델이 로딩되지 않았습니다.")
     
     try:
+        import soundfile as sf
+        
         # Qwen3-TTS CustomVoice 생성
-        # Speaker: Sohee (한국어 네이티브 화자)
+        # Speaker: Sohee (한국어 네이티브 여성 화자)
         # Instruction: 애교 많은 강아지 느낌
         wavs, sr = tts_model.generate_custom_voice(
             text=text,
@@ -327,7 +332,7 @@ def synthesize_speech(text: str, output_path: str):
             instruct="할머니를 정말 좋아하는 애교 많은 강아지처럼, 꼬리를 살랑살랑 흔드는 느낌으로 밝고 다정하게 말해줘."
         )
         
-        # 음성 파일 저장
+        # 음성 파일 저장 (wavs는 리스트, 첫 번째 요소 사용)
         sf.write(output_path, wavs[0], sr)
         logger.info(f"✅ TTS 완료: {output_path} (샘플레이트: {sr} Hz)")
     

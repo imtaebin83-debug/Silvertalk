@@ -103,11 +103,12 @@ async def generate_video(
     db.refresh(new_video)
 
     # Celery 태스크 실행 (백그라운드)
-    # ✅ EC2에서는 send_task()로 태스크 이름만 전달 (import 불필요)
+    # ✅ EC2 환경과의 호환성을 위해 send_task() 방식을 유지합니다.
     from worker.celery_app import celery_app
     task = celery_app.send_task(
         'worker.tasks.generate_memory_video',
-        args=[str(session.id), str(new_video.id), request.video_type]
+        args=[str(session.id), str(new_video.id), request.video_type],
+        queue="ai_tasks"
     )
 
     return {
