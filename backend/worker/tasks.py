@@ -431,10 +431,6 @@ def generate_reply(user_text: str, user_id: str, session_id: str = None) -> dict
         else:
                 logger.warning("Gemini 응답에 필수 필드 누락, Fallback 사용")
                 return FALLBACK_RESPONSE
-        else:
-            # Safety Filter로 None 반환된 경우
-            logger.warning("Gemini Safety Filter 작동, Fallback 사용")
-            return FALLBACK_RESPONSE
     
     except Exception as e:
         logger.error(f"Gemini 답변 생성 실패: {str(e)}")
