@@ -184,12 +184,12 @@ async def generate_video_endpoint(
     user: User = Depends(get_current_user)
 ):
     """
-    Luma Ray 모델을 사용해 이미지에서 영상 생성
+    Stable Video Diffusion (SVD) 모델을 사용해 이미지에서 영상 생성
 
     - **image_url**: 입력 이미지 URL (공개 접근 가능해야 함)
-    - **prompt**: 영상 생성 프롬프트 (어떻게 움직일지 설명)
+    - **prompt**: (현재 SVD에서는 사용되지 않음)
     - **aspect_ratio**: 영상 비율
-    - **loop**: 루프 영상 여부
+    - **loop**: (현재 SVD에서는 사용되지 않음)
 
     Returns:
         생성된 영상 URL
@@ -271,12 +271,12 @@ async def generate_video_from_upload(
 
     1. 이미지 유효성 검사
     2. 전처리 (RGB 변환, 1:1 크롭, 1024x1024 리사이즈)
-    3. Luma Ray로 영상 생성
+    3. Stable Video Diffusion (SVD)으로 영상 생성
 
     - **file**: 이미지 파일 (최대 20MB)
-    - **prompt**: 영상 생성 프롬프트 (어떻게 움직일지 설명)
+    - **prompt**: (현재 SVD에서는 사용되지 않음)
     - **aspect_ratio**: 영상 비율
-    - **loop**: 루프 영상 여부
+    - **loop**: (현재 SVD에서는 사용되지 않음)
     """
     logger.info(f"이미지 업로드 영상 생성 요청 - user: {user.id}, filename: {file.filename}")
 
@@ -447,7 +447,7 @@ async def generate_full_endpoint(
     프롬프트로 이미지를 생성하고, 해당 이미지로 영상까지 자동 생성
 
     1. 프롬프트 → 이미지 생성 (Flux-Schnell)
-    2. 이미지 → 영상 생성 (Luma Ray)
+    2. 이미지 → 영상 생성 (Stable Video Diffusion)
 
     Note:
         전체 과정에 약 2-5분 소요될 수 있습니다.

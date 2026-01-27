@@ -19,6 +19,7 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     libpq-dev \
     gcc \
+    pkg-config \
     # FFmpeg 개발 라이브러리 (PyAV 빌드용)
     libavformat-dev \
     libavcodec-dev \

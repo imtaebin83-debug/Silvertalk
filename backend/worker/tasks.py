@@ -1,17 +1,24 @@
 """
-Celery AI 처리 태스크
+Celery AI 처리 태스크 (Qwen3-TTS 버전)
 - 동적 디바이스 감지 (CUDA/CPU 자동 전환)
-- AI 모델: Faster-Whisper (STT), Gemini (LLM/Vision), Coqui XTTS (TTS)
+- AI 모델: Faster-Whisper (STT), Gemini (LLM), Qwen3-TTS (TTS)
+- CUDA 충돌 방지: Lazy 초기화 + 명시적 .env 로드
 """
+
+# ============================================================
+# 최우선: .env 로드 (GEMINI_API_KEY 등)
+# ============================================================
+from dotenv import load_dotenv
+load_dotenv()
+
 import os
 import logging
+import traceback
+import soundfile as sf
 from celery import Task
 from worker.celery_app import celery_app
 from common.config import settings
-
-# .env 파일 명시적 로드
-from dotenv import load_dotenv
-load_dotenv()
+from common.image_utils import preprocess_image_for_ai, ImageProcessingError
 
 # 로깅 설정
 logging.basicConfig(level=logging.INFO)
@@ -21,6 +28,8 @@ logger = logging.getLogger(__name__)
 # 동적 디바이스 감지 (Lazy 초기화)
 # ============================================================
 _device_cache = None
+DEVICE = None
+COMPUTE_TYPE = None
 
 def detect_device():
     """
@@ -30,31 +39,41 @@ def detect_device():
     Returns:
         tuple: (device, compute_type)
     """
-    global _device_cache
+    global _device_cache, DEVICE, COMPUTE_TYPE
     
     if _device_cache is not None:
         return _device_cache
     
     # torch는 함수 내부에서 import (Worker fork 이후)
-    import torch
+    try:
+        import torch
+        
+        if torch.cuda.is_available():
+            device = "cuda"
+            compute_type = "float16"  # Whisper용
+            gpu_name = torch.cuda.get_device_name(0)
+            logger.info(f"🚀 GPU 감지: {gpu_name} - CUDA 모드 활성화")
+        else:
+            device = "cpu"
+            compute_type = "int8"
+            logger.info("💻 GPU 미감지 - CPU 모드로 실행")
+        
+        _device_cache = (device, compute_type)
+        DEVICE = device
+        COMPUTE_TYPE = compute_type
+        return _device_cache
     
-    if torch.cuda.is_available():
-        device = "cuda"
-        compute_type = "float16"
-        gpu_name = torch.cuda.get_device_name(0)
-        logger.info(f"🚀 GPU 감지: {gpu_name} - CUDA 모드 활성화")
-    else:
-        device = "cpu"
-        compute_type = "int8"
-        logger.info("💻 GPU 미감지 - CPU 모드로 실행")
-    
-    _device_cache = (device, compute_type)
-    return _device_cache
+    except Exception as e:
+        logger.error(f"❌ 디바이스 감지 실패: {str(e)}, CPU로 fallback")
+        _device_cache = ("cpu", "int8")
+        DEVICE = "cpu"
+        COMPUTE_TYPE = "int8"
+        return _device_cache
+
 
 # ============================================================
 # AI 모델 전역 변수 (워커 시작 시 한 번만 로드)
 # ============================================================
-
 whisper_model = None
 tts_model = None
 gemini_model = None
@@ -72,38 +91,60 @@ def load_models():
     """
     global whisper_model, tts_model, gemini_model
     
+    # 디바이스 감지 (첫 실행)
+    device, compute_type = detect_device()
+    logger.info(f"🔧 디바이스 설정: device={device}, compute_type={compute_type}")
+    
     # STT: Faster-Whisper 로딩
     if whisper_model is None:
         try:
             from faster_whisper import WhisperModel
             
-            # 환경별 모델 경로 자동 설정
+            # RunPod Volume 경로 사용 (영구 저장)
             whisper_root = os.path.join(settings.models_root, "whisper")
             os.makedirs(whisper_root, exist_ok=True)
             
+            logger.info(f"[Whisper] 모델 로딩 시작... (경로: {whisper_root})")
             whisper_model = WhisperModel(
-                model_size_or_path="large-v3",  # 한국어 성능 최상
-                device=DEVICE,
-                compute_type=COMPUTE_TYPE,
+                model_size_or_path="large-v3",
+                device=device,
+                compute_type=compute_type,
                 download_root=whisper_root
             )
-            logger.info(f"✅ Whisper 모델 로딩 완료 (device={DEVICE}, path={whisper_root})")
+            logger.info(f"✅ Whisper 모델 로딩 완료 (device={device}, path={whisper_root})")
         except Exception as e:
             logger.error(f"❌ Whisper 로딩 실패: {str(e)}")
+            logger.error(traceback.format_exc())
             whisper_model = None
     
-    # TTS: Coqui XTTS v2 로딩
+    # TTS: Qwen3-TTS CustomVoice 로딩
     if tts_model is None:
         try:
-            from TTS.api import TTS
+            import torch
+            from qwen_tts import Qwen3TTSModel
             
-            tts_model = TTS(
-                model_name="tts_models/multilingual/multi-dataset/xtts_v2",
-                progress_bar=False
-            ).to(DEVICE)
-            logger.info(f"✅ XTTS 모델 로딩 완료 (device={DEVICE})")
+            # RunPod Volume 경로 사용
+            tts_cache_dir = os.path.join(settings.models_root, "qwen3-tts")
+            os.makedirs(tts_cache_dir, exist_ok=True)
+            
+            logger.info("[Qwen3-TTS] 모델 로딩 시작... (최초 5-10분 소요 가능)")
+            tts_model = Qwen3TTSModel.from_pretrained(
+                "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
+                device_map="cuda:0" if device == "cuda" else "cpu",
+                dtype=torch.bfloat16 if device == "cuda" else torch.float32,
+                attn_implementation="eager",  # Flash Attention 없이 (빠른 테스트)
+                cache_dir=tts_cache_dir
+            )
+            logger.info(f"✅ Qwen3-TTS 모델 로딩 완료 (device={device})")
+            
+            # 지원 언어/화자 출력
+            logger.info(f"   지원 언어: {tts_model.get_supported_languages()}")
+            logger.info(f"   지원 화자: {tts_model.get_supported_speakers()}")
+            
         except Exception as e:
-            logger.error(f"❌ XTTS 로딩 실패: {str(e)}")
+            logger.error(f"❌ Qwen3-TTS 로딩 실패: {str(e)}")
+            logger.error(traceback.format_exc())
+            logger.warning("⚠️ TTS 기능 비활성화 - 텍스트 응답만 가능")
             tts_model = None
     
     # LLM: Gemini 1.5 Flash 초기화
@@ -116,10 +157,11 @@ def load_models():
                 raise ValueError("GEMINI_API_KEY 환경 변수가 설정되지 않았습니다.")
             
             genai.configure(api_key=api_key)
-            gemini_model = genai.GenerativeModel("gemini-1.5-flash")
-            logger.info("✅ Gemini 1.5 Flash 초기화 완료")
+            gemini_model = genai.GenerativeModel("gemini-pro")
+            logger.info("✅ Gemini Pro 초기화 완료")
         except Exception as e:
             logger.error(f"❌ Gemini 초기화 실패: {str(e)}")
+            logger.error(traceback.format_exc())
             gemini_model = None
 
 
@@ -134,7 +176,7 @@ def process_audio_and_reply(self: Task, audio_path: str, user_id: str, session_i
     Flow:
     1. STT: Faster-Whisper로 음성 → 텍스트
     2. Brain: Gemini로 대화 생성
-    3. TTS: XTTS로 텍스트 → 음성
+    3. TTS: Qwen3-TTS로 텍스트 → 음성
     
     Args:
         audio_path: 업로드된 음성 파일 경로
@@ -165,6 +207,7 @@ def process_audio_and_reply(self: Task, audio_path: str, user_id: str, session_i
         # Step 3: TTS (텍스트 → 음성)
         logger.info(f"[TTS] 음성 합성 시작...")
         output_audio_path = f"/app/data/{user_id}_reply_{self.request.id}.wav"
+        os.makedirs(os.path.dirname(output_audio_path), exist_ok=True)
         synthesize_speech(ai_reply, output_audio_path)
         logger.info(f"[TTS] 음성 합성 완료: {output_audio_path}")
         
@@ -177,6 +220,7 @@ def process_audio_and_reply(self: Task, audio_path: str, user_id: str, session_i
     
     except Exception as e:
         logger.error(f"❌ 음성 처리 실패: {str(e)}")
+        logger.error(traceback.format_exc())
         return {
             "status": "error",
             "message": str(e)
@@ -259,32 +303,37 @@ def generate_reply(user_text: str, user_id: str, session_id: str = None) -> str:
 
 
 # ============================================================
-# TTS: Coqui XTTS v2
+# TTS: Qwen3-TTS CustomVoice
 # ============================================================
-def synthesize_speech(text: str, output_path: str, speaker_wav: str = None):
+def synthesize_speech(text: str, output_path: str):
     """
-    텍스트를 음성으로 변환
+    텍스트를 음성으로 변환 (Qwen3-TTS CustomVoice)
     
     Args:
         text: 합성할 텍스트
         output_path: 출력 음성 파일 경로
-        speaker_wav: 목소리 복제용 샘플 (옵션)
     """
     if tts_model is None:
-        raise RuntimeError("XTTS 모델이 로딩되지 않았습니다.")
+        raise RuntimeError("Qwen3-TTS 모델이 로딩되지 않았습니다.")
     
     try:
-        # 기본 목소리로 생성 (또는 커스텀 목소리 사용 가능)
-        tts_model.tts_to_file(
+        # Qwen3-TTS CustomVoice 생성
+        # Speaker: Sohee (한국어 네이티브 화자)
+        # Instruction: 애교 많은 강아지 느낌
+        wavs, sr = tts_model.generate_custom_voice(
             text=text,
-            file_path=output_path,
-            speaker_wav=speaker_wav,  # None이면 기본 목소리
-            language="ko"
+            language="Korean",
+            speaker="Sohee",  # 한국어 네이티브 여성 화자
+            instruct="할머니를 정말 좋아하는 애교 많은 강아지처럼, 꼬리를 살랑살랑 흔드는 느낌으로 밝고 다정하게 말해줘."
         )
-        logger.info(f"TTS 완료: {output_path}")
+        
+        # 음성 파일 저장
+        sf.write(output_path, wavs[0], sr)
+        logger.info(f"✅ TTS 완료: {output_path} (샘플레이트: {sr} Hz)")
     
     except Exception as e:
         logger.error(f"TTS 실패: {str(e)}")
+        logger.error(traceback.format_exc())
         raise
 
 
@@ -323,6 +372,7 @@ def analyze_image(self: Task, image_path: str, prompt: str):
     
     except Exception as e:
         logger.error(f"이미지 분석 실패: {str(e)}")
+        logger.error(traceback.format_exc())
         return {
             "status": "error",
             "message": str(e)
@@ -335,21 +385,49 @@ def analyze_image(self: Task, image_path: str, prompt: str):
 @celery_app.task(bind=True, name="worker.tasks.generate_reply_from_text")
 def generate_reply_from_text(self: Task, user_text: str, user_id: str, session_id: str = None):
     """
-    텍스트 입력만으로 AI 답변 생성 (STT/TTS 없이)
+    텍스트 입력으로 AI 답변 생성 + TTS 음성 합성
     """
     try:
         load_models()
         
+        # Gemini로 답변 생성
         ai_reply = generate_reply(user_text, user_id, session_id)
+        
+        # TTS 음성 생성 (모델이 로딩된 경우만)
+        audio_url = None
+        if tts_model is not None:
+            try:
+                import tempfile
+                from common.s3_client import upload_file
+                
+                # 임시 파일 생성
+                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+                    audio_path = tmp.name
+                
+                # TTS 합성
+                synthesize_speech(ai_reply, audio_path)
+                
+                # S3 업로드
+                audio_url = upload_file(audio_path, f"{user_id}/replies", f"reply_{self.request.id}.wav")
+                
+                # 임시 파일 삭제
+                os.remove(audio_path)
+                
+                logger.info(f"✅ TTS 음성 생성 완료: {audio_url}")
+            except Exception as tts_error:
+                logger.warning(f"⚠️ TTS 실패 (텍스트는 정상): {str(tts_error)}")
         
         return {
             "status": "success",
             "user_text": user_text,
-            "ai_reply": ai_reply
+            "ai_reply": ai_reply,
+            "audio_url": audio_url,
+            "gemini_response": ai_reply  # 테스트 스크립트 호환
         }
     
     except Exception as e:
         logger.error(f"텍스트 대화 실패: {str(e)}")
+        logger.error(traceback.format_exc())
         return {
             "status": "error",
             "message": str(e)
@@ -360,129 +438,241 @@ def generate_reply_from_text(self: Task, user_text: str, user_id: str, session_i
 # Celery 태스크: 추억 영상 생성
 # ============================================================
 @celery_app.task(bind=True, name="worker.tasks.generate_memory_video")
-def generate_memory_video(self: Task, session_id: str, video_id: str):
+def generate_memory_video(
+    self: Task,
+    session_id: str,
+    video_id: str,
+    video_type: str = "slideshow"
+):
     """
     대화 세션을 기반으로 추억 영상 생성
-    
+
     Flow:
-    1. ChatSession에서 대화 요약 조회
-    2. 삽화 생성 (Replicate/Flux API 또는 원본 사진 활용)
-    3. 내레이션 생성 (Coqui XTTS v2)
-    4. FFmpeg로 영상 렌더링
+    1. SessionPhoto에서 사진 목록 조회
+    2. 내레이션 스크립트 생성 (Gemini)
+    3. TTS 내레이션 생성 (Qwen3-TTS)
+    4. 영상 생성 (slideshow: FFmpeg / ai_animated: Replicate SVD)
     5. S3 업로드
-    
+
     Args:
         session_id: 대화 세션 ID
         video_id: 생성할 영상 ID
-    
+        video_type: "slideshow" (FFmpeg) 또는 "ai_animated" (Replicate SVD)
+
     Returns:
         dict: 영상 URL 및 상태
     """
+    db = None
+    temp_files = []  # 정리할 임시 파일들
+
     try:
         from common.database import SessionLocal
-        from common.models import ChatSession, GeneratedVideo, ChatLog, VideoStatus
-        
+        from common.models import (
+            ChatSession, GeneratedVideo, ChatLog, VideoStatus,
+            SessionPhoto, VideoType
+        )
+        from worker.ffmpeg_client import generate_slideshow, get_video_duration
+        from common.s3_client import upload_video, download_image
+
         db = SessionLocal()
-        
+
         # 세션 조회
         session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
         if not session:
-            raise ValueError("세션을 찾을 수 없습니다.")
-        
+            raise ValueError(f"세션을 찾을 수 없습니다: {session_id}")
+
         # 영상 레코드 조회
         video = db.query(GeneratedVideo).filter(GeneratedVideo.id == video_id).first()
         if not video:
-            raise ValueError("영상 레코드를 찾을 수 없습니다.")
-        
+            raise ValueError(f"영상 레코드를 찾을 수 없습니다: {video_id}")
+
         # 상태 업데이트: PROCESSING
         video.status = VideoStatus.PROCESSING
         db.commit()
-        
-        # Step 1: 대화 로그 수집
-        logger.info(f"[영상 생성] Step 1: 대화 로그 수집 (session_id={session_id})")
+
+        # ============================================================
+        # Step 1: 사진 수집
+        # ============================================================
+        logger.info(f"[영상 생성] Step 1: 사진 수집 (session_id={session_id})")
+
+        # SessionPhoto 테이블에서 순서대로 조회
+        session_photos = (
+            db.query(SessionPhoto)
+            .filter(SessionPhoto.session_id == session_id)
+            .order_by(SessionPhoto.display_order)
+            .all()
+        )
+
+        # SessionPhoto가 없으면 main_photo로 fallback
+        if not session_photos:
+            if not session.main_photo:
+                raise ValueError("세션에 사진이 없습니다.")
+            photo_records = [type('obj', (object,), {'photo_url': session.main_photo})]
+        else:
+            photo_records = session_photos
+
+        # 사진 다운로드 및 전처리
+        local_photo_paths = []
+        for i, photo in enumerate(photo_records):
+            try:
+                # S3에서 다운로드
+                photo_url = photo.photo_url
+                local_path = f"/app/data/photo_{video_id}_{i}.jpg"
+                temp_files.append(local_path)
+                
+                download_image(photo_url, local_path)
+                
+                # 이미지 전처리 (리사이즈, 포맷 통일)
+                processed_path = f"/app/data/photo_{video_id}_{i}_processed.jpg"
+                temp_files.append(processed_path)
+                
+                preprocess_image_for_ai(
+                    local_path,
+                    processed_path,
+                    target_size=(1920, 1080),  # Full HD
+                    quality=95
+                )
+                
+                local_photo_paths.append(processed_path)
+                logger.info(f"   사진 {i+1}/{len(photo_records)} 준비 완료")
+                
+            except Exception as e:
+                logger.error(f"   사진 {i+1} 처리 실패: {str(e)}")
+                continue
+
+        if not local_photo_paths:
+            raise ValueError("처리 가능한 사진이 없습니다.")
+
+        logger.info(f"[영상 생성] {len(local_photo_paths)}장 사진 다운로드 완료")
+
+        # ============================================================
+        # Step 2: 대화 로그 수집 및 내레이션 생성
+        # ============================================================
+        logger.info(f"[영상 생성] Step 2: 내레이션 스크립트 생성")
+
         logs = db.query(ChatLog).filter(ChatLog.session_id == session_id).all()
-        
         conversation_text = "\n".join([
             f"{'사용자' if log.role == 'user' else '강아지'}: {log.content}"
             for log in logs
         ])
-        
-        # Step 2: 내레이션 스크립트 생성 (Gemini)
-        logger.info(f"[영상 생성] Step 2: 내레이션 스크립트 생성")
+
         if gemini_model is None:
             load_models()
-        
+
+        photo_count = len(local_photo_paths)
         narration_prompt = f"""다음은 할머니와 반려견 AI의 대화 내용입니다.
 
 {conversation_text}
 
 이 대화를 바탕으로 **손주가 할머니에게 들려주는 따뜻한 내레이션**을 작성해주세요.
-2-3문장으로 짧고 감동적으로 작성해주세요.
+{photo_count}장의 사진이 슬라이드쇼로 보여질 예정입니다.
+전체 3-5문장으로 따뜻하고 감동적으로 작성해주세요.
 
 내레이션:"""
-        
+
         response = gemini_model.generate_content(narration_prompt)
         narration_text = response.text.strip()
-        logger.info(f"[영상 생성] 내레이션: {narration_text}")
-        
-        # Step 3: TTS 내레이션 생성
+        logger.info(f"[영상 생성] 내레이션: {narration_text[:100]}...")
+
+        # ============================================================
+        # Step 3: TTS 내레이션 생성 (Qwen3-TTS)
+        # ============================================================
         logger.info(f"[영상 생성] Step 3: TTS 음성 생성")
         narration_audio_path = f"/app/data/video_{video_id}_narration.wav"
+        temp_files.append(narration_audio_path)
         synthesize_speech(narration_text, narration_audio_path)
-        
-        # Step 4: FFmpeg로 영상 렌더링 (간단한 버전)
-        logger.info(f"[영상 생성] Step 4: 영상 렌더링")
+
+        # ============================================================
+        # Step 4: 영상 생성
+        # ============================================================
+        logger.info(f"[영상 생성] Step 4: 영상 렌더링 (type={video_type})")
         output_video_path = f"/app/data/video_{video_id}.mp4"
-        
-        # 원본 사진 경로
-        main_photo = session.main_photo
-        photo_path = main_photo.s3_url if main_photo else None
-        
-        if photo_path and photo_path.startswith("http"):
-            # S3 URL -> 로컬 다운로드 (추후 구현)
-            photo_path = "/app/data/placeholder.jpg"
-        
-        # FFmpeg 명령어 (사진 + 오디오)
-        # (추후 구현: ffmpeg-python 사용)
-        # 현재는 placeholder
-        
-        # Step 5: S3 업로드 (추후 구현)
+        temp_files.append(output_video_path)
+
+        if video_type == "slideshow":
+            # FFmpeg 슬라이드쇼 생성
+            generate_slideshow(
+                image_paths=local_photo_paths,
+                audio_path=narration_audio_path,
+                output_path=output_video_path,
+                duration_per_image=3.0
+            )
+        else:
+            # Replicate SVD 애니메이션 (기존 로직)
+            from common.replicate_client import generate_animated_video
+            
+            svd_outputs = []
+            for img_path in local_photo_paths:
+                video_url = generate_animated_video(img_path)
+                svd_outputs.append(video_url)
+            
+            # 영상 병합 + 오디오 추가
+            from worker.ffmpeg_client import merge_videos_with_audio
+            merge_videos_with_audio(
+                video_paths=svd_outputs,
+                audio_path=narration_audio_path,
+                output_path=output_video_path
+            )
+
+        # ============================================================
+        # Step 5: S3 업로드
+        # ============================================================
         logger.info(f"[영상 생성] Step 5: S3 업로드")
-        video_url = f"https://s3.amazonaws.com/silvertalk/videos/{video_id}.mp4"
-        thumbnail_url = f"https://s3.amazonaws.com/silvertalk/videos/{video_id}_thumb.jpg"
-        
-        # 영상 레코드 업데이트
+
+        video_url, thumbnail_url = upload_video(
+            output_video_path,
+            str(session.user_id),
+            str(video_id)
+        )
+
+        # 영상 길이 조회
+        duration = get_video_duration(output_video_path)
+
+        # ============================================================
+        # Step 6: DB 업데이트
+        # ============================================================
         video.video_url = video_url
         video.thumbnail_url = thumbnail_url
         video.status = VideoStatus.COMPLETED
+        video.video_type = VideoType(video_type)
+        video.duration_seconds = duration
         db.commit()
-        
-        db.close()
-        
-        logger.info(f"[영상 생성] ✅ 완료: {video_url}")
-        
+
+        logger.info(f"[영상 생성] ✅ 완료: {video_url} ({duration:.1f}초)")
+
         return {
             "status": "success",
             "video_id": str(video_id),
             "video_url": video_url,
-            "thumbnail_url": thumbnail_url
+            "thumbnail_url": thumbnail_url,
+            "duration_seconds": duration
         }
-    
+
     except Exception as e:
         logger.error(f"[영상 생성] ❌ 실패: {str(e)}")
-        
+        logger.error(traceback.format_exc())
+
         # 상태 업데이트: FAILED
-        try:
-            db = SessionLocal()
-            video = db.query(GeneratedVideo).filter(GeneratedVideo.id == video_id).first()
-            if video:
+        if db and video:
+            try:
                 video.status = VideoStatus.FAILED
                 db.commit()
-            db.close()
-        except:
-            pass
-        
+            except:
+                pass
+
         return {
             "status": "error",
             "message": str(e)
         }
+
+    finally:
+        # 임시 파일 정리
+        for temp_file in temp_files:
+            try:
+                if os.path.exists(temp_file):
+                    os.remove(temp_file)
+            except:
+                pass
+        
+        if db:
+            db.close()

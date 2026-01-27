@@ -134,12 +134,12 @@ async def get_presign_url(
 @router.get("/random", response_model=List[PhotoResponse], summary="초기 랜덤 사진 조회")
 async def get_random_photos(
     kakao_id: str,
-    limit: int = 6,
+    limit: int = 4,
     db: Session = Depends(get_db)
 ):
     """
-    대화 시작 전, 랜덤으로 6장의 사진 제공
-    
+    대화 시작 전, 랜덤으로 4장의 사진 제공
+
     알고리즘:
     1. 오래된 사진 우선 (taken_at DESC)
     2. 사용 빈도가 낮은 사진 우선 (view_count ASC)
@@ -171,10 +171,10 @@ async def get_random_photos(
 @router.get("/refresh", response_model=List[PhotoResponse], summary="사진 리스트 갱신")
 async def refresh_photos(
     kakao_id: str,
-    limit: int = 6,
+    limit: int = 4,
     db: Session = Depends(get_db)
 ):
     """
-    사용자가 '다른 사진 보기' 클릭 시 새로운 6장 제공
+    사용자가 '다른 사진 보기' 클릭 시 새로운 4장 제공
     """
     return await get_random_photos(kakao_id, limit, db)

@@ -1,7 +1,19 @@
+# ============================================================
+# Docker Compose - 로컬 개발 환경 (기본)
+# ============================================================
+# 용도: 전체 스택 로컬 개발 (PostgreSQL + Redis + API + Worker)
+# 사용법: docker-compose up -d
+# 테스트: personal-docs/DOCKER_TEST_GUIDE.md
+# ============================================================
+
 version: '3.8'
 
+networks:
+  silvertalk-network:
+    driver: bridge
+
 services:
-  # PostgreSQL 데이터베이스
+  # PostgreSQL 데이터베이스 (로컬)
   postgres:
     image: postgres:15-alpine
     container_name: silvertalk-postgres
@@ -29,9 +41,13 @@ services:
       - "6379:6379"
     volumes:
       - redis-data:/data
-    command: redis-server --appendonly yes
     networks:
       - silvertalk-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
   # FastAPI 웹 서버
   web:
@@ -43,20 +59,26 @@ services:
       - "8000:8000"
     volumes:
       - ./backend:/app
-      - ./data:/app/data
+      - ./backend/data:/app/data
     environment:
+      - DEPLOYMENT_MODE=LOCAL
+      - ENVIRONMENT=development
       - DATABASE_URL=postgresql://silvertalk:silvertalk_dev_password@postgres:5432/silvertalk
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
       - GEMINI_API_KEY=${GEMINI_API_KEY}
-    env_file:
-      - .env
+      - REPLICATE_API_TOKEN=${REPLICATE_API_TOKEN}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-test_secret_key}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_REGION=${AWS_REGION:-ap-northeast-2}
+      - S3_BUCKET_NAME=${S3_BUCKET_NAME}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
     networks:
       - silvertalk-network
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
@@ -69,41 +91,28 @@ services:
     container_name: silvertalk-worker
     volumes:
       - ./backend:/app
-      - ./data:/app/data
-      - ./backend/models:/app/models  # AI 모델 가중치 저장소
+      - ./backend/models:/app/models
+      - ./backend/data:/app/data
     environment:
+      - DEPLOYMENT_MODE=LOCAL
+      - ENVIRONMENT=development
       - DATABASE_URL=postgresql://silvertalk:silvertalk_dev_password@postgres:5432/silvertalk
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - MODELS_ROOT=/app/models
+      - COQUI_TOS_AGREED=1
       - GEMINI_API_KEY=${GEMINI_API_KEY}
-      # 로컬 개발 환경: CPU 모드 강제 (GPU 없는 Windows/Mac)
+      - REPLICATE_API_TOKEN=${REPLICATE_API_TOKEN}
       - CUDA_VISIBLE_DEVICES=""
-      # AWS 프로덕션 배포 시: 위 라인을 주석 처리하거나 삭제하세요
-    env_file:
-      - .env
     depends_on:
       postgres:
         condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
     networks:
       - silvertalk-network
-    command: celery -A worker.celery_app worker --loglevel=info --concurrency=2
-    
-    # ============================================================
-    # GPU 설정 (AWS 프로덕션 환경 전용)
-    # ============================================================
-    # 로컬 개발 시: 아래 주석을 유지하세요 (GPU 없어도 에러 방지)
-    # AWS g4dn.xlarge 배포 시: 아래 주석을 해제하고 위의 CUDA_VISIBLE_DEVICES="" 라인 삭제
-    # ============================================================
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: 1
-    #           capabilities: [gpu]
+    command: celery -A worker.celery_app worker --loglevel=info --concurrency=2 --include=worker.tasks
 
   # Flower (Celery 모니터링 대시보드)
   flower:
@@ -111,8 +120,6 @@ services:
       context: ./backend
       dockerfile: Dockerfile.api
     container_name: silvertalk-flower
-    # Flower 실행 명령어로 덮어씌움
-    command: celery -A worker.tasks flower --port=5555
     ports:
       - "5555:5555"
     environment:
@@ -128,7 +135,5 @@ services:
 volumes:
   postgres-data:
   redis-data:
-
-networks:
-  silvertalk-network:
-    driver: bridge
+  models:
+  data:

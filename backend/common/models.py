@@ -3,8 +3,8 @@ SQLAlchemy 데이터베이스 모델
 DB 스키마 기반 정의
 """
 from sqlalchemy import (
-    Column, String, Integer, Float, Boolean, Text, 
-    DateTime, ForeignKey, Enum as SQLEnum
+    Column, String, Integer, Float, Boolean, Text,
+    DateTime, ForeignKey, Enum as SQLEnum, UniqueConstraint
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
@@ -24,6 +24,12 @@ class VideoStatus(str, enum.Enum):
     PROCESSING = "processing"
     COMPLETED = "completed"
     FAILED = "failed"
+
+
+class VideoType(str, enum.Enum):
+    """영상 타입"""
+    SLIDESHOW = "slideshow"      # FFmpeg Ken Burns 슬라이드쇼
+    AI_ANIMATED = "ai_animated"  # Replicate SVD AI 애니메이션
 
 
 class SessionStatus(str, enum.Enum):
@@ -137,6 +143,36 @@ class ChatSession(Base):
     main_photo = relationship("UserPhoto", foreign_keys=[main_photo_id])
     logs = relationship("ChatLog", back_populates="session", cascade="all, delete-orphan")
     videos = relationship("GeneratedVideo", back_populates="session")
+    session_photos = relationship(
+        "SessionPhoto",
+        back_populates="session",
+        order_by="SessionPhoto.display_order",
+        cascade="all, delete-orphan"
+    )
+
+
+class SessionPhoto(Base):
+    """세션에 사용된 사진 (순서 추적)"""
+    __tablename__ = "session_photos"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    session_id = Column(UUID(as_uuid=True), ForeignKey("chat_sessions.id"), nullable=False)
+    photo_id = Column(UUID(as_uuid=True), ForeignKey("user_photos.id"), nullable=False)
+
+    # 표시 순서 (1 = 메인 사진, 2+ = 관련 사진)
+    display_order = Column(Integer, nullable=False, default=1)
+
+    # 세션에 추가된 시간
+    added_at = Column(DateTime, default=datetime.utcnow)
+
+    # 관계
+    session = relationship("ChatSession", back_populates="session_photos")
+    photo = relationship("UserPhoto")
+
+    # 같은 세션에 같은 사진 중복 방지
+    __table_args__ = (
+        UniqueConstraint('session_id', 'photo_id', name='uq_session_photo'),
+    )
 
 
 class ChatLog(Base):
@@ -164,20 +200,26 @@ class ChatLog(Base):
 class GeneratedVideo(Base):
     """생성된 추억 영상"""
     __tablename__ = "generated_videos"
-    
+
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     session_id = Column(UUID(as_uuid=True), ForeignKey("chat_sessions.id"), nullable=False)
-    
+
     # S3 URL
     video_url = Column(Text, nullable=True)
     thumbnail_url = Column(Text, nullable=True)
-    
+
+    # 영상 타입 (slideshow: FFmpeg, ai_animated: Replicate SVD)
+    video_type = Column(SQLEnum(VideoType), default=VideoType.SLIDESHOW)
+
+    # 영상 길이 (초)
+    duration_seconds = Column(Float, nullable=True)
+
     # 생성 상태
     status = Column(SQLEnum(VideoStatus), default=VideoStatus.PENDING)
-    
+
     created_at = Column(DateTime, default=datetime.utcnow)
-    
+
     # 관계
     user = relationship("User", back_populates="videos")
     session = relationship("ChatSession", back_populates="videos")

@@ -6,12 +6,14 @@ import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 
-// 화면 컴포넌트 (추후 구현)
-// TODO: 화면 컴포넌트 추가
+// 화면 컴포넌트
 import HomeScreen from './src/screens/HomeScreen';
 import GalleryScreen from './src/screens/GalleryScreen';
 import ChatScreen from './src/screens/ChatScreen';
 import VideoGalleryScreen from './src/screens/VideoGalleryScreen';
+import ChatHistoryScreen from './src/screens/ChatHistoryScreen';
+import ChatHistoryDetailScreen from './src/screens/ChatHistoryDetailScreen';
+import ProfileScreen from './src/screens/ProfileScreen';
 
 const Stack = createStackNavigator();
 
@@ -27,29 +29,63 @@ export default function App() {
           headerTintColor: '#fff',
           headerTitleStyle: {
             fontWeight: 'bold',
-            fontSize: 24, // 어르신을 위한 큰 글씨
+            fontSize: 24,
           },
+          headerTitleAlign: 'center',
         }}
       >
-        <Stack.Screen 
-          name="Home" 
-          component={HomeScreen} 
-          options={{ title: '복실이' }}
+        <Stack.Screen
+          name="Home"
+          component={HomeScreen}
+          options={{ headerShown: false }}
         />
-        <Stack.Screen 
-          name="Gallery" 
-          component={GalleryScreen} 
-          options={{ title: '사진 선택' }}
+        <Stack.Screen
+          name="Gallery"
+          component={GalleryScreen}
+          options={{
+            title: '사진 선택',
+            headerBackTitle: '뒤로',
+          }}
         />
-        <Stack.Screen 
-          name="Chat" 
-          component={ChatScreen} 
-          options={{ title: '대화하기' }}
+        <Stack.Screen
+          name="Chat"
+          component={ChatScreen}
+          options={{
+            title: '대화하기',
+            headerBackTitle: '뒤로',
+          }}
         />
-        <Stack.Screen 
-          name="VideoGallery" 
-          component={VideoGalleryScreen} 
-          options={{ title: '추억 극장' }}
+        <Stack.Screen
+          name="VideoGallery"
+          component={VideoGalleryScreen}
+          options={{
+            title: '추억 극장',
+            headerBackTitle: '뒤로',
+          }}
+        />
+        <Stack.Screen
+          name="ChatHistory"
+          component={ChatHistoryScreen}
+          options={{
+            title: '대화 기록',
+            headerBackTitle: '뒤로',
+          }}
+        />
+        <Stack.Screen
+          name="ChatHistoryDetail"
+          component={ChatHistoryDetailScreen}
+          options={{
+            title: '대화 상세',
+            headerBackTitle: '뒤로',
+          }}
+        />
+        <Stack.Screen
+          name="Profile"
+          component={ProfileScreen}
+          options={{
+            title: '프로필',
+            headerBackTitle: '뒤로',
+          }}
         />
       </Stack.Navigator>
     </NavigationContainer>

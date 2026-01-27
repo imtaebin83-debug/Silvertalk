@@ -1,20 +1,24 @@
 /**
  * 추억 극장 화면
- * 생성된 영상 목록
+ * 설계도 2번: 만들었던 영상들 나열, 아래로 스크롤 가능
  */
 import React, { useState, useEffect } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  FlatList, 
+import {
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
   TouchableOpacity,
   Image,
-  Alert 
+  Alert,
+  Dimensions,
 } from 'react-native';
+
+const { width } = Dimensions.get('window');
 
 const VideoGalleryScreen = ({ navigation }) => {
   const [videos, setVideos] = useState([]);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     fetchVideos();
@@ -22,28 +26,40 @@ const VideoGalleryScreen = ({ navigation }) => {
 
   const fetchVideos = async () => {
     try {
+      setLoading(true);
       // API 호출 (추후 구현)
       // const response = await axios.get('http://localhost:8000/videos/?kakao_id=test');
       // setVideos(response.data);
-      
+
       // 임시 데이터
       setVideos([
-        { 
-          id: '1', 
-          thumbnail_url: 'https://via.placeholder.com/300', 
+        {
+          id: '1',
+          thumbnail_url: 'https://via.placeholder.com/400x250',
           created_at: '2024-01-15',
-          status: 'completed'
+          title: '가족 여행 추억',
+          status: 'completed',
         },
-        { 
-          id: '2', 
-          thumbnail_url: 'https://via.placeholder.com/300', 
+        {
+          id: '2',
+          thumbnail_url: 'https://via.placeholder.com/400x250',
           created_at: '2024-01-10',
-          status: 'completed'
+          title: '손자와 함께한 날',
+          status: 'completed',
+        },
+        {
+          id: '3',
+          thumbnail_url: 'https://via.placeholder.com/400x250',
+          created_at: '2024-01-05',
+          title: '생신 파티',
+          status: 'completed',
         },
       ]);
     } catch (error) {
       console.error('영상 목록 불러오기 실패:', error);
       Alert.alert('오류', '영상을 불러올 수 없습니다.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -59,18 +75,23 @@ const VideoGalleryScreen = ({ navigation }) => {
 
   const renderVideoItem = ({ item }) => (
     <View style={styles.videoCard}>
-      <TouchableOpacity onPress={() => handleVideoPress(item)}>
-        <Image 
-          source={{ uri: item.thumbnail_url }} 
-          style={styles.thumbnail} 
-        />
+      <TouchableOpacity
+        onPress={() => handleVideoPress(item)}
+        activeOpacity={0.8}
+      >
+        <Image source={{ uri: item.thumbnail_url }} style={styles.thumbnail} />
         <View style={styles.playIconOverlay}>
-          <Text style={styles.playIcon}>▶</Text>
+          <View style={styles.playButton}>
+            <Text style={styles.playIcon}>▶</Text>
+          </View>
         </View>
       </TouchableOpacity>
-      
+
       <View style={styles.videoInfo}>
-        <Text style={styles.videoDate}>{item.created_at}</Text>
+        <View style={styles.videoTextInfo}>
+          <Text style={styles.videoTitle}>{item.title}</Text>
+          <Text style={styles.videoDate}>{item.created_at}</Text>
+        </View>
         <TouchableOpacity
           style={styles.shareButton}
           onPress={() => handleSharePress(item)}
@@ -83,12 +104,11 @@ const VideoGalleryScreen = ({ navigation }) => {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>추억 극장</Text>
-      
       {videos.length === 0 ? (
         <View style={styles.emptyState}>
+          <Text style={styles.emptyIcon}>🎬</Text>
           <Text style={styles.emptyText}>아직 만들어진 영상이 없어요.</Text>
-          <Text style={styles.emptyText}>복실이와 대화를 시작해보세요!</Text>
+          <Text style={styles.emptySubText}>복실이와 대화를 시작해보세요!</Text>
         </View>
       ) : (
         <FlatList
@@ -96,6 +116,7 @@ const VideoGalleryScreen = ({ navigation }) => {
           renderItem={renderVideoItem}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.videoList}
+          showsVerticalScrollIndicator={false}
         />
       )}
     </View>
@@ -106,17 +127,10 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#FFF8DC',
-    padding: 15,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    textAlign: 'center',
-    marginVertical: 20,
-    color: '#333',
   },
   videoList: {
-    paddingBottom: 20,
+    padding: 15,
+    paddingBottom: 30,
   },
   videoCard: {
     backgroundColor: '#FFFFFF',
@@ -125,13 +139,14 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
     elevation: 5,
   },
   thumbnail: {
     width: '100%',
     height: 200,
+    backgroundColor: '#E0E0E0',
   },
   playIconOverlay: {
     position: 'absolute',
@@ -141,11 +156,20 @@ const styles = StyleSheet.create({
     bottom: 0,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    backgroundColor: 'rgba(0, 0, 0, 0.25)',
+  },
+  playButton: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   playIcon: {
-    fontSize: 60,
-    color: '#FFFFFF',
+    fontSize: 30,
+    color: '#FFD700',
+    marginLeft: 5,
   },
   videoInfo: {
     flexDirection: 'row',
@@ -153,18 +177,28 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 15,
   },
+  videoTextInfo: {
+    flex: 1,
+  },
+  videoTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 5,
+  },
   videoDate: {
-    fontSize: 18,
-    color: '#666',
+    fontSize: 16,
+    color: '#888',
   },
   shareButton: {
     backgroundColor: '#FFD700',
-    paddingVertical: 10,
+    paddingVertical: 12,
     paddingHorizontal: 20,
     borderRadius: 10,
+    marginLeft: 10,
   },
   shareButtonText: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: 'bold',
     color: '#FFFFFF',
   },
@@ -172,12 +206,23 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    paddingHorizontal: 40,
+  },
+  emptyIcon: {
+    fontSize: 60,
+    marginBottom: 20,
   },
   emptyText: {
     fontSize: 22,
+    fontWeight: 'bold',
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 10,
+  },
+  emptySubText: {
+    fontSize: 18,
     color: '#999',
     textAlign: 'center',
-    marginVertical: 5,
   },
 });
 
