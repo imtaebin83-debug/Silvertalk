@@ -122,17 +122,24 @@ def load_models():
                     
                     # 2. libcublas 체크 (CUDA 11.x 또는 12.x)
                     cublas_found = False
-                    for cublas_ver in ["libcublas.so.11", "libcublas.so.12"]:
+                    cublas_version = None
+                    for cublas_ver in ["libcublas.so.12", "libcublas.so.11"]:
                         try:
                             ctypes.CDLL(cublas_ver)
                             logger.info(f"✅ {cublas_ver} 확인 완료")
                             cublas_found = True
+                            cublas_version = cublas_ver
                             break
                         except OSError:
                             continue
                     
                     if not cublas_found:
                         raise Exception("libcublas 라이브러리 누락 (11 또는 12 버전 필요)")
+                    
+                    # libcublas.so.12가 필요한데 .11만 있는 경우 경고
+                    if cublas_version == "libcublas.so.11":
+                        logger.warning("⚠️ CTranslate2가 libcublas.so.12를 요구할 수 있습니다")
+                        logger.warning("⚠️ 실패 시 심볼릭 링크 생성: ln -sf libcublas.so.11 libcublas.so.12")
                     
                     # 라이브러리 체크 통과 → Whisper 모델 로딩
                     whisper_model = WhisperModel(
@@ -181,9 +188,10 @@ def load_models():
                 raise ValueError("GEMINI_API_KEY 환경 변수가 설정되지 않았습니다.")
             
             genai.configure(api_key=api_key)
-            # gemini-2.0-flash-exp (최신 버전, 팀원 검증 완료)
-            gemini_model = genai.GenerativeModel("gemini-2.0-flash-exp")
-            logger.info("✅ Gemini 2.0 Flash 초기화 완료")
+            # gemini-1.5-flash (안정 버전, quota 여유)
+            # gemini-2.0-flash-exp (실험 버전, quota 제한 심함)
+            gemini_model = genai.GenerativeModel("gemini-1.5-flash")
+            logger.info("✅ Gemini 1.5 Flash 초기화 완료")
         except Exception as e:
             logger.error(f"❌ Gemini 초기화 실패: {str(e)}")
             logger.error(traceback.format_exc())
@@ -439,8 +447,37 @@ def generate_reply(user_text: str, user_id: str, session_id: str = None) -> dict
 }}
 """
         
-        # 기본 설정으로 응답 생성 (response_mime_type 제거 - 버전 호환성)
-        response = gemini_model.generate_content(prompt)
+        # Gemini API 호출 (Retry 로직 추가)
+        import time
+        max_retries = 3
+        retry_count = 0
+        
+        while retry_count < max_retries:
+            try:
+                response = gemini_model.generate_content(prompt)
+                break  # 성공 시 루프 탈출
+            
+            except Exception as api_error:
+                error_str = str(api_error)
+                
+                # Quota 초과 에러 처리
+                if "429" in error_str or "quota" in error_str.lower():
+                    retry_count += 1
+                    
+                    # Retry delay 추출 (에러 메시지에서)
+                    import re
+                    retry_match = re.search(r'retry in (\d+)', error_str)
+                    retry_delay = int(retry_match.group(1)) if retry_match else 10
+                    
+                    if retry_count < max_retries:
+                        logger.warning(f"⚠️ Gemini Quota 초과, {retry_delay}초 후 재시도 ({retry_count}/{max_retries})")
+                        time.sleep(retry_delay)
+                    else:
+                        logger.error(f"❌ Gemini Quota 초과, 최대 재시도 횟수 도달")
+                        return FALLBACK_RESPONSE
+                else:
+                    # 다른 에러는 즉시 Fallback
+                    raise api_error
         
         # 응답 파싱
         if response and response.text:
