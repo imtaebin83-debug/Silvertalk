@@ -166,19 +166,18 @@ async def start_chat_session(
     db.flush()  # session.id 확보
 
     pet_name = user.pet_name or "복실이"
-    greeting_task_id = None
-    fallback_greeting = None
     
-    # photo가 있고 s3_url이 있으면 Gemini Vision으로 첫 인사 생성
+    # === 즉시 인사 생성 (Instant UX - 비동기 제거) ===
+    import random
+    
     if photo and photo.s3_url:
-        # Celery 태스크로 첫 인사 생성 (비동기)
-        task = celery_app.send_task(
-            "worker.tasks.generate_greeting",
-            args=[photo.s3_url, pet_name, str(session.id)],
-            queue="ai_tasks"
-        )
-        greeting_task_id = task.id
-        logger.info(f"🐕 첫 인사 생성 태스크 시작: task_id={task.id}")
+        # 사진이 있을 때 인사 (랜덤 변형)
+        greetings = [
+            f"우와, 사진을 가져오셨네요! 이 사진은 어떤 추억인가요? 저에게 이야기해주세요! 멍!",
+            f"오, 이 사진 너무 좋아요! {pet_name}도 궁금해요~ 어디서 찍은 건가요?",
+            f"안녕하세요! 사진 보니까 {pet_name}도 설레요! 이 사진 속 이야기를 들려주세요! 멍멍!",
+        ]
+        ai_reply = random.choice(greetings)
         
         # SessionPhoto 추가 및 조회수 증가
         session_photo = SessionPhoto(
@@ -191,17 +190,18 @@ async def start_chat_session(
         photo.view_count += 1
         photo.last_chat_session_id = session.id
     else:
-        # photo가 없거나 s3_url이 없으면 기본 인사 반환
-        fallback_greeting = f"안녕하세요! 저는 {pet_name}예요. 오늘 기분이 어떠세요? 멍!"
-        
-        # 기본 인사를 ChatLog에 저장
-        greeting_log = ChatLog(
-            session_id=session.id,
-            role="assistant",
-            content=fallback_greeting
-        )
-        db.add(greeting_log)
-        logger.info(f"🐕 기본 인사 사용 (사진 없음)")
+        # photo가 없거나 s3_url이 없으면 기본 인사
+        ai_reply = f"안녕하세요! 저는 {pet_name}예요. 오늘 기분이 어떠세요? 멍!"
+    
+    # 인사를 ChatLog에 저장
+    greeting_log = ChatLog(
+        session_id=session.id,
+        role="assistant",
+        content=ai_reply
+    )
+    db.add(greeting_log)
+    session.turn_count = 1  # 첫 턴 카운트
+    logger.info(f"🐕 즉시 인사 생성 완료: {ai_reply[:30]}...")
 
     # 연관 사진 추천 (간단 버전)
     related_photos = []
@@ -228,8 +228,8 @@ async def start_chat_session(
 
     return CreateSessionResponse(
         session_id=str(session.id),
-        greeting_task_id=greeting_task_id,
-        ai_reply=fallback_greeting,
+        greeting_task_id=None,  # 더 이상 비동기 태스크 사용 안함
+        ai_reply=ai_reply,
         turn_count=session.turn_count,
         related_photos=related_photos
     )

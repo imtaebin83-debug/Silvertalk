@@ -160,9 +160,9 @@ class LocalStorageClient:
     S3 대신 로컬 파일 시스템 사용
     """
 
-    def __init__(self, base_path: str = "/app/data/storage"):
-        self.base_path = base_path
-        os.makedirs(base_path, exist_ok=True)
+    def __init__(self, base_path: str = None):
+        self.base_path = base_path or os.getenv("TEMP_STORAGE_PATH", "/tmp/storage")
+        os.makedirs(self.base_path, exist_ok=True)
 
     def upload_file(
         self,
