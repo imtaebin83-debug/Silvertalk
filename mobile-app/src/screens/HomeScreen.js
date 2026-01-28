@@ -152,7 +152,7 @@ const styles = StyleSheet.create({
   },
   dogContainer: {
     position: 'absolute',
-    bottom: 110,
+    bottom: 20,
     left: 0,
     right: 0,
     alignItems: 'center',
@@ -173,10 +173,10 @@ const styles = StyleSheet.create({
   },
   dogTouchArea: {
     position: 'absolute',
-    bottom: 60,
+    bottom: 0,
     alignSelf: 'center',
     width: '80%',
-    height: '50%',
+    height: '60%', // 더 넓은 터치 영역 확보
     zIndex: 3,
   },
   overlay: {
@@ -248,10 +248,11 @@ const styles = StyleSheet.create({
   speechBubble: {
     backgroundColor: '#FFF',
     borderRadius: 25,
-    padding: 20,
+    padding: 15,
     maxWidth: '90%',
     elevation: 5,
     position: 'relative',
+    marginTop: -40
   },
   speechBubbleTail: {
     position: 'absolute',
@@ -274,7 +275,7 @@ const styles = StyleSheet.create({
   },
   bottomContent: {
     position: 'absolute',
-    bottom: 200,
+    bottom: 150,
     left: 0,
     right: 0,
     alignItems: 'center',

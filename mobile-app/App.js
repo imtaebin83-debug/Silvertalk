@@ -66,9 +66,9 @@ export default function App() {
         initialRouteName={initialRoute} // ✅ 확인된 시작 화면 적용
         screenOptions={{
           headerStyle: {
-            backgroundColor: colors.primary,
+            backgroundColor: '#EAEAEA',
           },
-          headerTintColor: colors.textWhite,
+          headerTintColor: colors.text,
           headerTitleStyle: {
             fontFamily: fonts.bold,
             fontSize: fonts.sizes.xxlarge,
