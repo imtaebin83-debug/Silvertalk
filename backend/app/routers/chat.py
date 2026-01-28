@@ -577,19 +577,22 @@ async def finish_session(
 ):
     """
     대화 세션 종료
-    
+
     - 대화 요약 생성 (LLM)
     - create_video=True: 영상 생성 시작
+    - turn_count < 3이어도 사진이 있으면 영상 생성 허용 (Polling 실패 케이스 대응)
     """
     session = db.query(ChatSession).filter(ChatSession.id == uuid.UUID(session_id)).first()
-    
+
     if not session:
         raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다.")
-    
-    if session.turn_count < 3:
+
+    # turn_count 체크 완화: 사진이 있으면 영상 생성 허용
+    session_photos = db.query(SessionPhoto).filter(SessionPhoto.session_id == session.id).count()
+    if session.turn_count < 1 and session_photos == 0:
         raise HTTPException(
             status_code=400,
-            detail="최소 3턴 이상 대화해야 종료할 수 있습니다."
+            detail="대화를 시작한 후에 종료할 수 있습니다."
         )
     
     # 세션 완료 처리
@@ -612,20 +615,34 @@ async def finish_session(
     
     # 영상 생성 요청
     if create_video:
-        # Celery 태스크 실행 (이미 import된 celery_app 사용)
+        from common.models import GeneratedVideo, VideoStatus, VideoType
+
+        new_video = GeneratedVideo(
+            user_id=session_id.user_id, # 기존 로직 유지
+            session_id=session.id,
+            status=VideoStatus.PENDING,
+            video_type=VideoType.slideshow
+        )
+        db.add(new_video)
+        db.commit()
+        db.refresh(new_video)
+
         task = celery_app.send_task(
             'worker.tasks.generate_memory_video',
-            args=[str(session.id)],
+            args=[str(session.id), str(new_video.id), "slideshow"],
             queue="ai_tasks"
         )
-        
+
         return {
+            "success": True,  # 프론트엔드 if(result.success) 체크용 추가
             "message": "대화가 종료되었습니다. 영상을 만들고 있어요!",
             "session_id": str(session.id),
+            "video_id": str(new_video.id),      # 프론트엔드가 이 값을 사용함
             "video_task_id": task.id
         }
     
     return {
+        "success": True,
         "message": "대화가 종료되었습니다.",
         "session_id": str(session.id)
     }

@@ -143,9 +143,13 @@ async def get_video_status(
     if not video:
         raise HTTPException(status_code=404, detail="영상을 찾을 수 없습니다.")
     
+    # [수정 포인트] Enum 객체인 경우 .value를 추출하고, 아니면 문자열로 변환합니다.
+    # 이렇게 해야 프론트엔드의 if(result.status === 'COMPLETED') 조건문이 작동합니다.
+    status_str = video.status.value if hasattr(video.status, 'value') else str(video.status)
+    
     return {
         "video_id": str(video.id),
-        "status": video.status,
+        "status": status_str, # 문자열로 전달 (예: "PENDING", "COMPLETED")
         "video_url": video.video_url,
         "thumbnail_url": video.thumbnail_url,
         "created_at": video.created_at
