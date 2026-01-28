@@ -209,11 +209,18 @@ class FFmpegSlideshowGenerator:
             audio_idx = len(slides)
             cmd.extend(["-map", f"{audio_idx}:a", "-c:a", "aac", "-b:a", "192k", "-shortest"])
 
+        # 예상 영상 길이 계산 (트랜지션 오버랩 고려)
+        # 총 시간 = 슬라이드 시간 합 - (트랜지션 수 × 트랜지션 길이)
+        total_slide_time = sum(s.duration for s in slides)
+        total_trans_time = trans_dur * (len(slides) - 1) if len(slides) > 1 else 0
+        expected_duration = total_slide_time - total_trans_time
+
         cmd.extend([
             "-c:v", "libx264",
             "-preset", "medium",
             "-crf", "23",
             "-movflags", "+faststart",
+            "-t", str(expected_duration),  # 예상 길이로 제한
             self.config.output_path
         ])
 

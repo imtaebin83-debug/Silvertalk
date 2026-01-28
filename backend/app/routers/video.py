@@ -30,6 +30,20 @@ class VideoResponse(BaseModel):
     class Config:
         from_attributes = True
 
+    @classmethod
+    def from_orm_model(cls, video):
+        """ORM 모델에서 Response 생성 (UUID/Enum 변환)"""
+        return cls(
+            id=str(video.id),
+            session_id=str(video.session_id),
+            video_url=video.video_url,
+            thumbnail_url=video.thumbnail_url,
+            video_type=video.video_type.value if video.video_type else "slideshow",
+            duration_seconds=video.duration_seconds,
+            status=video.status.value if video.status else "pending",
+            created_at=video.created_at
+        )
+
 
 class VideoGenerateRequest(BaseModel):
     session_id: str
@@ -244,18 +258,19 @@ async def get_videos(
     사용자의 모든 추억 영상 목록 (추억 극장)
     """
     user = db.query(User).filter(User.kakao_id == kakao_id).first()
-    
+
     if not user:
         raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
-    
+
     videos = (
         db.query(GeneratedVideo)
         .filter(GeneratedVideo.user_id == user.id)
         .order_by(GeneratedVideo.created_at.desc())
         .all()
     )
-    
-    return videos
+
+    # UUID/Enum 직렬화를 위해 명시적 변환
+    return [VideoResponse.from_orm_model(v) for v in videos]
 
 
 # ============================================================
