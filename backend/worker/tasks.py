@@ -19,7 +19,7 @@ import soundfile as sf
 from celery import Task
 from worker.celery_app import celery_app
 from common.config import settings
-from common.image_utils import preprocess_image_for_ai, ImageProcessingError
+from common.image_utils import preprocess_image_for_ai, preprocess_image_file, ImageProcessingError
 
 # 로깅 설정
 logging.basicConfig(level=logging.INFO)
@@ -1363,12 +1363,13 @@ def generate_memory_video(
                 # 이미지 전처리 (리사이즈, 포맷 통일)
                 processed_path = f"/tmp/photo_{video_id}_{i}_processed.jpg"
                 temp_files.append(processed_path)
-                
-                preprocess_image_for_ai(
+
+                # 파일 기반 전처리 함수 사용 (preprocess_image_file)
+                preprocess_image_file(
                     local_path,
                     processed_path,
                     target_size=(1920, 1080),  # Full HD
-                    quality=95
+                    jpeg_quality=95
                 )
                 
                 local_photo_paths.append(processed_path)
