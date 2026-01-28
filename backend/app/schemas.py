@@ -69,6 +69,17 @@ class ImageAnalysisResult(BaseModel):
 
 
 # ============================================================
+# 첫 인사 생성 태스크 결과 (Greeting) - 신규 추가
+# ============================================================
+class GreetingTaskResult(BaseModel):
+    """generate_greeting 태스크 결과"""
+    status: str = Field(..., description="작업 상태 (success, failure)")
+    ai_greeting: str = Field(..., description="AI가 생성한 첫 인사 멘트")
+    analysis: Optional[str] = Field(None, description="Vision AI의 이미지 분석 결과 (디버깅용)")
+    session_id: str = Field(..., description="세션 UUID (문자열)")
+
+
+# ============================================================
 # 데이터베이스 모델 (향후 확장용)
 # ============================================================
 class User(BaseModel):

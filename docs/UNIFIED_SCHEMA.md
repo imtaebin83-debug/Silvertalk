@@ -367,9 +367,29 @@ GET /videos/{video_id}/status
 }
 
 # 실패 시 반환값
-{
     "status": "error",        # 소문자!
     "message": "에러 메시지"
+}
+```
+
+### 4.3 generate_greeting (신규)
+
+```python
+# worker/tasks.py
+
+# 성공 시 반환값
+{
+    "status": "success",      # 소문자!
+    "ai_greeting": "우와! 정말 멋진 바다 사진이네요! 언제 다녀오셨어요?",
+    "analysis": "A photo of a beautiful beach with blue sky...",
+    "session_id": "uuid-string"
+}
+
+# 실패 시 반환값
+{
+    "status": "failure",
+    "message": "이미지를 분석할 수 없습니다.",
+    "session_id": "uuid-string"
 }
 ```
 
