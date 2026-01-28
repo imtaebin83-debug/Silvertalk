@@ -241,30 +241,42 @@ const ChatScreen = ({ route, navigation }) => {
           style={styles.chatScrollView}
           contentContainerStyle={styles.chatContent}
         >
-          {[...localMessages, ...chatSession.messages].map((msg, index) => (
-            <View key={index} style={styles.messageRow}>
-              {msg.role === 'assistant' ? (
-                <View style={styles.assistantMessageContainer}>
-                  <Image source={DOG_IMAGE} style={styles.dogImage} />
-                  <View style={styles.assistantBubbleContainer}>
-                    <Text style={styles.senderName}>복실이</Text>
-                    <View style={styles.assistantBubble}>
-                      <Text style={styles.messageText}>{msg.content}</Text>
+          {/* 메시지 리스트 렌더링 구역 (IIFE 패턴으로 안전하게 렌더링) */}
+          {(() => {
+            const allMessages = [...localMessages, ...chatSession.messages];
+            console.log('현재 렌더링 메시지:', allMessages);
+            
+            return allMessages.map((msg, index) => (
+              <View key={index} style={styles.messageRow}>
+                {msg.role === 'assistant' ? (
+                  <View style={styles.assistantMessageContainer}>
+                    <Image source={DOG_IMAGE} style={styles.dogImage} />
+                    <View style={styles.assistantBubbleContainer}>
+                      <Text style={styles.senderName}>복실이</Text>
+                      <View style={styles.assistantBubble}>
+                        <Text style={styles.messageText}>{msg.content}</Text>
+                      </View>
                     </View>
                   </View>
-                </View>
-              ) : (
-                <View style={styles.userMessageContainer}>
-                  <View style={styles.userBubble}>
-                    <Text style={styles.userMessageText}>{msg.content}</Text>
+                ) : (
+                  <View style={styles.userMessageContainer}>
+                    <View style={styles.userBubble}>
+                      <Text style={styles.userMessageText}>{msg.content}</Text>
+                    </View>
                   </View>
-                </View>
-              )}
-            </View>
-          ))}
+                )}
+              </View>
+            ));
+          })() /* 👈 함수 실행 괄호를 잊지 마세요! */}
+
+          {/* 애니메이션 구역 (조건부 렌더링) */}
           {(chatSession.chatState === CHAT_STATES.POLLING || chatSession.chatState === CHAT_STATES.UPLOADING) && (
             <View style={styles.animationContainer}>
-              <DogAnimation emotion={chatSession.emotion} isAnimating={true} customMessage="복실이가 생각하고 있어요..." />
+              <DogAnimation 
+                emotion={chatSession.emotion} 
+                isAnimating={true} 
+                customMessage="복실이가 생각하고 있어요..." 
+              />
             </View>
           )}
         </ScrollView>
