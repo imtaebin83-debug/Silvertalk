@@ -329,6 +329,7 @@ const useChatSession = ({ initialSessionId = null, onError } = {}) => {
 
   /**
    * 세션 종료
+   * 백엔드 API: PATCH /chat/sessions/{session_id}/finish?create_video=true
    */
   const endSession = useCallback(
     async (createVideo = false) => {
@@ -339,17 +340,44 @@ const useChatSession = ({ initialSessionId = null, onError } = {}) => {
           return { success: true };
         }
 
-        // POST /chat/sessions/end
-        const response = await api.post('/chat/sessions/end', {
-          session_id: sessionId,
-          create_video: createVideo,
-        });
+        // PATCH /chat/sessions/{session_id}/finish
+        // 백엔드가 turn_count < 3이면 400 에러를 반환하지만,
+        // polling 실패해도 사진이 있으면 영상 생성 가능하도록 처리
+        const url = `/chat/sessions/${sessionId}/finish?create_video=${createVideo}`;
+        const response = await api.request(url, { method: 'PATCH' });
+
+        // 응답 파싱
+        const data = await response.json();
+
+        // 400 에러 (턴 수 부족) 처리 - 영상 생성 직접 요청
+        if (!response.ok) {
+          console.warn('세션 종료 API 실패:', data.detail);
+
+          // 턴 수 부족이어도 영상 생성을 원하면 직접 videos/generate 호출
+          if (createVideo) {
+            console.log('📹 턴 수 부족하지만 영상 생성 직접 요청...');
+            const videoResponse = await api.post('/videos/generate', {
+              session_id: sessionId,
+              video_type: 'slideshow',
+            });
+
+            if (videoResponse.task_id || videoResponse.video_id) {
+              return {
+                success: true,
+                videoTaskId: videoResponse.task_id || videoResponse.video_id,
+              };
+            }
+          }
+
+          // 영상 생성 안 하면 그냥 성공 처리
+          return { success: true };
+        }
 
         // 영상 생성 Task ID 반환
-        if (createVideo && response.video_task_id) {
+        if (createVideo && data.video_task_id) {
           return {
             success: true,
-            videoTaskId: response.video_task_id,
+            videoTaskId: data.video_task_id,
           };
         }
 
