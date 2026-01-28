@@ -57,38 +57,56 @@ const ChatScreen = ({ route, navigation }) => {
   useEffect(() => {
     const startSessionAndGreet = async () => {
       try {
+        console.log('🚀 세션 시작 시도...');
+        console.log('   - initialSessionId:', initialSessionId);
+
         // 세션 시작 API 호출
         const response = await api.post('/chat/sessions', {
           kakao_id: 'test_user', // 실제로는 로그인 정보에서 가져와야 함
           photo_id: initialSessionId // photo_id로 사용
         });
 
+        console.log('📥 세션 생성 응답:', JSON.stringify(response, null, 2));
+
+        // ai_reply 검증
+        const aiReply = response.ai_reply || response.greeting;
+        if (!aiReply) {
+          console.error('❌ ai_reply가 응답에 없습니다:', response);
+          throw new Error('서버 응답에 ai_reply가 없습니다.');
+        }
+
+        // 세션 ID 설정
+        if (response.session_id) {
+          chatSession.setSession(response.session_id);
+        }
+
         // 첫 인사 메시지 추가
-        const greetingMessage = { 
-          role: 'assistant', 
-          content: response.ai_reply, 
-          timestamp: new Date() 
+        const greetingMessage = {
+          role: 'assistant',
+          content: aiReply,
+          timestamp: new Date()
         };
         setLocalMessages([greetingMessage]);
+        console.log('✅ 첫 인사 메시지 설정:', aiReply);
 
         // TTS로 첫 인사 재생
-        await chatSession.speakText(response.ai_reply);
+        await chatSession.speakText(aiReply);
 
         // 연관 사진 업데이트
         if (response.related_photos) {
-          setRelatedPhotos(response.related_photos.map((photo, idx) => ({ 
-            ...photo, 
-            order: idx 
+          setRelatedPhotos(response.related_photos.map((photo, idx) => ({
+            ...photo,
+            order: idx
           })));
         }
 
       } catch (error) {
-        console.error('세션 시작 실패:', error);
+        console.error('❌ 세션 시작 실패:', error);
         // Fallback 메시지
-        const fallbackMessage = { 
-          role: 'assistant', 
-          content: '안녕하세요! 저는 복실이에요. 오늘 기분이 어떠세요?', 
-          timestamp: new Date() 
+        const fallbackMessage = {
+          role: 'assistant',
+          content: '안녕하세요! 저는 복실이에요. 오늘 기분이 어떠세요?',
+          timestamp: new Date()
         };
         setLocalMessages([fallbackMessage]);
         await chatSession.speakText(fallbackMessage.content);
@@ -241,9 +259,8 @@ const ChatScreen = ({ route, navigation }) => {
           style={styles.chatScrollView}
           contentContainerStyle={styles.chatContent}
         >
-          {(() => {
-            console.log('messages:', [...localMessages, ...chatSession.messages]);
-            return [...localMessages, ...chatSession.messages].map((msg, index) => (
+          {/* 메시지 리스트 렌더링 */}
+          {[...localMessages, ...chatSession.messages].map((msg, index) => (
             <View key={index} style={styles.messageRow}>
               {msg.role === 'assistant' ? (
                 <View style={styles.assistantMessageContainer}>
@@ -266,7 +283,11 @@ const ChatScreen = ({ route, navigation }) => {
           ))}
           {(chatSession.chatState === CHAT_STATES.POLLING || chatSession.chatState === CHAT_STATES.UPLOADING) && (
             <View style={styles.animationContainer}>
-              <DogAnimation emotion={chatSession.emotion} isAnimating={true} customMessage="복실이가 생각하고 있어요..." />
+              <DogAnimation 
+                emotion={chatSession.emotion} 
+                isAnimating={true} 
+                customMessage="복실이가 생각하고 있어요..." 
+              />
             </View>
           )}
         </ScrollView>

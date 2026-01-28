@@ -115,13 +115,13 @@ export const pollTaskResult = async (taskId, options = {}) => {
         onProgress(result);
       }
       
-      // 완료 또는 실패 시 반환
-      if (result.status === 'SUCCESS') {
+      // 완료 또는 실패 시 반환 (서버는 소문자 'success'/'failure' 반환)
+      if (result.status === 'success' || result.status === 'SUCCESS') {
         return { success: true, data: result };
       }
-      
-      if (result.status === 'FAILURE') {
-        return { success: false, error: result.error || '처리 실패' };
+
+      if (result.status === 'failure' || result.status === 'FAILURE') {
+        return { success: false, error: result.error || result.message || '처리 실패' };
       }
       
       // 아직 처리 중이면 대기

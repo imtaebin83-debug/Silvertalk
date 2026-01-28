@@ -275,15 +275,29 @@ const useChatSession = ({ initialSessionId = null, onError } = {}) => {
         }
 
         // 성공: 결과 처리
-        console.log('pollTask result.data:', result.data);
-        const { user_text, ai_reply, sentiment } = result.data;
+        console.log('📥 pollTask result:', JSON.stringify(result, null, 2));
+
+        // result.data에서 직접 추출 (서버 응답 구조에 맞춤)
+        const user_text = result.data?.user_text || '';
+        const ai_reply = result.data?.ai_reply || '';
+        const sentiment = result.data?.sentiment || 'neutral';
+
+        console.log('📝 Extracted - user_text:', user_text);
+        console.log('📝 Extracted - ai_reply:', ai_reply);
+        console.log('📝 Extracted - sentiment:', sentiment);
+
+        // ai_reply가 없으면 에러 처리
+        if (!ai_reply) {
+          console.error('❌ ai_reply가 비어있습니다!');
+          throw new Error('AI 응답이 비어있습니다.');
+        }
 
         // 사용자 메시지 업데이트
         updateLastUserMessage(user_text || '[인식 실패]');
 
         // AI 응답 추가
         addMessage('assistant', ai_reply);
-        setEmotion(sentiment || 'neutral');
+        setEmotion(sentiment);
 
         // 서버에 대화 저장 (실패해도 계속 진행)
         try {
