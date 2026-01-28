@@ -1355,13 +1355,13 @@ def generate_memory_video(
             try:
                 # S3에서 다운로드
                 photo_url = photo.s3_url
-                local_path = f"/app/data/photo_{video_id}_{i}.jpg"
+                local_path = f"/tmp/photo_{video_id}_{i}.jpg"
                 temp_files.append(local_path)
                 
                 download_image(photo_url, local_path)
                 
                 # 이미지 전처리 (리사이즈, 포맷 통일)
-                processed_path = f"/app/data/photo_{video_id}_{i}_processed.jpg"
+                processed_path = f"/tmp/photo_{video_id}_{i}_processed.jpg"
                 temp_files.append(processed_path)
                 
                 preprocess_image_for_ai(
@@ -1429,7 +1429,7 @@ def generate_memory_video(
         # Step 4: 영상 생성
         # ============================================================
         logger.info(f"[영상 생성] Step 4: 영상 렌더링 (type={video_type})")
-        output_video_path = f"/app/data/video_{video_id}.mp4"
+        output_video_path = f"/tmp/video_{video_id}.mp4"
         temp_files.append(output_video_path)
 
         if video_type == "slideshow":
