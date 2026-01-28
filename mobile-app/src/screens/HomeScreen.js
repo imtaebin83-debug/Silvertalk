@@ -147,6 +147,8 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background || '#EAEAEA',
+    // 화면 전체 콘텐츠를 아래로 밀어내기 위해 상단 패딩 추가
+    paddingTop: 60, 
   },
   dogContainer: {
     position: 'absolute',

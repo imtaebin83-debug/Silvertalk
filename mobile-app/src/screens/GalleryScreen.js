@@ -164,13 +164,21 @@ const GalleryScreen = ({ navigation }) => {
         ? uploadResult.photos.map((p) => p.url)
         : [];
 
-      // 7. 성공 시 ChatScreen으로 이동 (업로드된 사진 정보 전달)
+      // 7. 대표 사진이 첫 번째가 되도록 배열 재정렬
+      // [앞3장, 대표, 뒤3장] -> [대표, 뒤3장, 앞3장] 또는 [대표, 뒤..., 앞...]
+      const reorderedUrls = [
+        uploadedPhotoUrls[mainPhotoIndex], // 대표 사진을 첫 번째로
+        ...uploadedPhotoUrls.slice(mainPhotoIndex + 1), // 대표 사진 뒤의 사진들
+        ...uploadedPhotoUrls.slice(0, mainPhotoIndex), // 대표 사진 앞의 사진들
+      ].filter(Boolean); // undefined 제거
+
+      // 8. 성공 시 ChatScreen으로 이동 (대표 사진이 첫 번째인 배열 전달)
       navigation.navigate('Chat', {
         sessionId: sid,
-        photoUrl: uploadedPhotoUrls[mainPhotoIndex] || photo.local_uri, // 메인 사진 URL
+        photoUrl: reorderedUrls[0] || photo.local_uri, // 대표 사진 URL (첫 번째)
         photoDate: photo.taken_at,
-        allPhotoUrls: uploadedPhotoUrls, // 전체 업로드된 사진 URL
-        mainPhotoIndex: mainPhotoIndex, // 메인 사진 인덱스
+        allPhotoUrls: reorderedUrls, // 재정렬된 사진 URL (대표 사진이 첫 번째)
+        mainPhotoIndex: 0, // 대표 사진은 이제 항상 인덱스 0
       });
 
     } catch (error) {
@@ -263,8 +271,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  loadingText: { marginTop: 15, fontFamily: fonts.bold, color: colors.primary },
-  topSection: { flexDirection: 'row', alignItems: 'center', marginBottom: 15 },
+  loadingText: { marginTop: 15, fontFamily: fonts.bold, color: colors.black },
+  topSection: { flexDirection: 'row', alignItems: 'center', marginTop: 30, marginBottom: 40,
+ },
   characterContainer: { width: 60, height: 60 },
   smallDog: { width: '130%', height: '130%' },
   speechBubble: {
