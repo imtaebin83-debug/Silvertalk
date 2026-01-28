@@ -646,10 +646,9 @@ async def finish_session(
     session.is_completed = True
     session.status = SessionStatus.COMPLETED
     
-    # 대화 요약 생성 (Gemini)
-    # (추후 구현: 모든 ChatLog를 합쳐서 요약)
+    # 대화 로그 조회 (인사이트 추출용)
     logs = db.query(ChatLog).filter(ChatLog.session_id == session.id).all()
-    session.summary = "할머니가 손주와 함께 바닷가에 갔던 추억을 이야기했습니다."
+    # Note: session.summary는 save_ai_response에서 new_summary로 점진적 업데이트됨
     
     db.commit()
     

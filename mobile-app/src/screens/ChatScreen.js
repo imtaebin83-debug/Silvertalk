@@ -10,9 +10,10 @@ import {
   Modal,
   Dimensions,
   ActivityIndicator,
+  Animated,
 } from 'react-native';
 import { useKeepAwake } from 'expo-keep-awake';
-import { colors, fonts } from '../theme';
+import { colors, fonts, commonStyles, sentimentEmoji } from '../theme';
 import api from '../api/config';
 import useVoiceRecording from '../hooks/useVoiceRecording';
 import useChatSession, { CHAT_STATES } from '../hooks/useChatSession';
@@ -22,6 +23,7 @@ const { width, height } = Dimensions.get('window');
 
 // 복실이 이미지
 const DOG_IMAGE = require('../../assets/dog_nukki.png');
+const SAD_DOG_IMAGE = require('../../assets/dog_nukki.png'); // TODO: 슬픈 강아지 이미지
 
 const ChatScreen = ({ route, navigation }) => {
   useKeepAwake(); // 화면 꺼짐 방지
@@ -50,6 +52,13 @@ const ChatScreen = ({ route, navigation }) => {
   const [showEndModal, setShowEndModal] = useState(false);
   const [showRecordModal, setShowRecordModal] = useState(false);
   const [isCreatingVideo, setIsCreatingVideo] = useState(false);
+
+  // 커스텀 토스트 상태
+  const [toastMessage, setToastMessage] = useState('');
+  const [showToast, setShowToast] = useState(false);
+
+  // Breathing 애니메이션 (어르신 친화적 피드백)
+  const breathingAnim = useRef(new Animated.Value(0.6)).current;
 
   const scrollViewRef = useRef(null);
 
@@ -197,6 +206,29 @@ const ChatScreen = ({ route, navigation }) => {
     }
   }, [localMessages, chatSession.messages]);
 
+  // Breathing 애니메이션 (로딩 시 강아지 아바타)
+  useEffect(() => {
+    if (chatSession.chatState === CHAT_STATES.POLLING || chatSession.chatState === CHAT_STATES.UPLOADING) {
+      const animation = Animated.loop(
+        Animated.sequence([
+          Animated.timing(breathingAnim, { toValue: 1.0, duration: 800, useNativeDriver: true }),
+          Animated.timing(breathingAnim, { toValue: 0.6, duration: 800, useNativeDriver: true }),
+        ])
+      );
+      animation.start();
+      return () => animation.stop();
+    } else {
+      breathingAnim.setValue(1);
+    }
+  }, [chatSession.chatState]);
+
+  // 커스텀 토스트 표시 함수
+  const showCustomToast = (message, duration = 2500) => {
+    setToastMessage(message);
+    setShowToast(true);
+    setTimeout(() => setShowToast(false), duration);
+  };
+
   // 턴 카운트 감지
   useEffect(() => {
     if (chatSession.turnCount > 0) {
@@ -337,27 +369,39 @@ const ChatScreen = ({ route, navigation }) => {
             const allMessages = [...localMessages, ...chatSession.messages];
             console.log('현재 메시지 목록:', allMessages);
 
-            return allMessages.map((msg, index) => (
-              <View key={index} style={styles.messageRow}>
-                {msg.role === 'assistant' ? (
-                  <View style={styles.assistantMessageContainer}>
-                    <Image source={DOG_IMAGE} style={styles.dogImage} />
-                    <View style={styles.assistantBubbleContainer}>
-                      <Text style={styles.senderName}>복실이</Text>
-                      <View style={styles.assistantBubble}>
-                        <Text style={styles.messageText}>{msg.content}</Text>
+            return allMessages.map((msg, index) => {
+              // 감정 이모지 가져오기 (AI 메시지에만)
+              const emoji = msg.sentiment ? (sentimentEmoji[msg.sentiment] || '🐕') : null;
+
+              return (
+                <View key={index} style={styles.messageRow}>
+                  {msg.role === 'assistant' ? (
+                    <View style={styles.assistantMessageContainer}>
+                      <Animated.Image
+                        source={DOG_IMAGE}
+                        style={[
+                          styles.dogImage,
+                          { opacity: chatSession.chatState === CHAT_STATES.POLLING ? breathingAnim : 1 }
+                        ]}
+                      />
+                      <View style={styles.assistantBubbleContainer}>
+                        <Text style={styles.senderName}>복실이</Text>
+                        <View style={styles.assistantBubble}>
+                          {emoji && <Text style={styles.sentimentEmoji}>{emoji}</Text>}
+                          <Text style={styles.messageText}>{msg.content}</Text>
+                        </View>
                       </View>
                     </View>
-                  </View>
-                ) : (
-                  <View style={styles.userMessageContainer}>
-                    <View style={styles.userBubble}>
-                      <Text style={styles.userMessageText}>{msg.content}</Text>
+                  ) : (
+                    <View style={styles.userMessageContainer}>
+                      <View style={styles.userBubble}>
+                        <Text style={styles.userMessageText}>{msg.content}</Text>
+                      </View>
                     </View>
-                  </View>
-                )}
-              </View>
-            ));
+                  )}
+                </View>
+              );
+            });
           })() /* 👈 이 부분에 '()'와 '}'가 정확히 있어야 함수가 실행됩니다! */}
 
           {/* 2. 애니메이션 구역 (조건부 렌더링) */}
@@ -460,6 +504,15 @@ const ChatScreen = ({ route, navigation }) => {
           </View>
         </View>
       </Modal>
+
+      {/* 커스텀 토스트 (어르신 친화적 피드백) */}
+      {showToast && (
+        <View style={styles.toastContainer}>
+          <View style={styles.toast}>
+            <Text style={styles.toastText}>{toastMessage}</Text>
+          </View>
+        </View>
+      )}
     </View>
   );
 };
@@ -510,25 +563,41 @@ const styles = StyleSheet.create({
   dogImage: { width: 45, height: 45, borderRadius: 22.5, marginRight: 10 },
   assistantBubbleContainer: { flex: 1, maxWidth: '80%' },
   senderName: { fontSize: 12, color: colors.textLight, marginBottom: 4 },
+  // AI 버블
   assistantBubble: {
-    backgroundColor: colors.white,
-    padding: 15,
-    borderRadius: 18,
+    maxWidth: '85%',
+    backgroundColor: colors.card,
+    padding: 16,
+    borderRadius: 20,
     borderTopLeftRadius: 4,
-    elevation: 2
+    ...commonStyles.shadow,
   },
-  messageText: { fontSize: 18, color: colors.text, lineHeight: 26 },
+  sentimentEmoji: {
+    fontSize: 28,
+    marginBottom: 6,
+  },
+  messageText: {
+    fontSize: fonts.sizes.medium,
+    color: colors.text,
+    lineHeight: 28,
+    fontFamily: fonts.body,
+  },
 
   // 사용자 메시지
   userMessageContainer: { flexDirection: 'row', justifyContent: 'flex-end' },
   userBubble: {
     maxWidth: '75%',
     backgroundColor: colors.primary,
-    padding: 15,
-    borderRadius: 18,
+    padding: 16,
+    borderRadius: 20,
     borderTopRightRadius: 4
   },
-  userMessageText: { fontSize: 18, color: colors.white, lineHeight: 26 },
+  userMessageText: {
+    fontSize: fonts.sizes.medium,
+    color: colors.textWhite,
+    lineHeight: 28,
+    fontFamily: fonts.body,
+  },
 
   animationContainer: { alignItems: 'center', paddingVertical: 10 },
 
@@ -619,6 +688,31 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: colors.textLight,
     marginTop: 10,
+  },
+
+  // 커스텀 토스트 (어르신 친화적)
+  toastContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    pointerEvents: 'none',
+  },
+  toast: {
+    backgroundColor: 'rgba(62, 39, 35, 0.9)',
+    paddingVertical: 20,
+    paddingHorizontal: 40,
+    borderRadius: 16,
+    ...commonStyles.shadow,
+  },
+  toastText: {
+    color: colors.textWhite,
+    fontSize: fonts.sizes.large,
+    fontWeight: 'bold',
+    textAlign: 'center',
   },
 });
 
