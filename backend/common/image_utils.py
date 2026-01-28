@@ -103,6 +103,73 @@ def preprocess_image_for_ai(
         raise ImageProcessingError(f"이미지 처리 중 오류 발생: {str(e)}")
 
 
+def preprocess_image_file(
+    input_path: str,
+    output_path: str,
+    target_size: Tuple[int, int] = (1920, 1080),
+    jpeg_quality: int = 95
+) -> str:
+    """
+    파일 기반 이미지 전처리 (영상용)
+
+    Args:
+        input_path: 입력 파일 경로
+        output_path: 출력 파일 경로
+        target_size: (width, height)
+        jpeg_quality: JPEG 품질
+
+    Returns:
+        output_path
+    """
+    try:
+        with open(input_path, "rb") as f:
+            image_bytes = f.read()
+
+        image = Image.open(BytesIO(image_bytes))
+
+        # 1. RGB 변환
+        if image.mode != "RGB":
+            if image.mode == "RGBA":
+                background = Image.new("RGB", image.size, (255, 255, 255))
+                background.paste(image, mask=image.split()[3])
+                image = background
+            else:
+                image = image.convert("RGB")
+
+        target_w, target_h = target_size
+
+        # 2. Aspect Fill 방식 (화면을 꽉 채우되 넘치는 부분 잘림)
+        src_w, src_h = image.size
+        src_ratio = src_w / src_h
+        target_ratio = target_w / target_h
+
+        if src_ratio > target_ratio:
+            # 원본이 더 와이드함 -> 높이 맞추고 가로 잘림
+            new_h = target_h
+            new_w = int(new_h * src_ratio)
+        else:
+            # 원본이 더 홀쭉함 -> 가로 맞추고 세로 잘림
+            new_w = target_w
+            new_h = int(new_w / src_ratio)
+
+        # 1차 리사이즈 (LANCZOS)
+        resize_img = image.resize((new_w, new_h), Image.LANCZOS)
+
+        # 중앙 크롭
+        left = (new_w - target_w) // 2
+        top = (new_h - target_h) // 2
+        right = left + target_w
+        bottom = top + target_h
+        image = resize_img.crop((left, top, right, bottom))
+
+        # 3. JPEG 저장
+        image.save(output_path, format="JPEG", quality=jpeg_quality, optimize=True)
+
+        return output_path
+    except Exception as e:
+        raise ImageProcessingError(f"이미지 파일 처리 실패: {str(e)}")
+
+
 def get_image_info(image_bytes: bytes) -> Dict[str, Any]:
     """
     이미지 정보 조회 (디버깅/로깅용)
