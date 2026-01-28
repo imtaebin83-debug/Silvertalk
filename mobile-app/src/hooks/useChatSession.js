@@ -275,7 +275,7 @@ const useChatSession = ({ initialSessionId = null, onError } = {}) => {
         }
 
         // 성공: 결과 처리
-        const { user_text, ai_reply, sentiment } = result.data.result || FALLBACK_RESPONSE;
+        const { user_text, ai_reply, sentiment } = result.data;
 
         // 사용자 메시지 업데이트
         updateLastUserMessage(user_text || '[인식 실패]');

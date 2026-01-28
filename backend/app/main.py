@@ -199,20 +199,20 @@ async def get_task_result(task_id: str):
         if task.state == "PENDING":
             return {
                 "task_id": task_id,
-                "status": "pending",
+                "status": "PENDING",
                 "message": random.choice(PENDING_MESSAGES)
             }
         elif task.state == "STARTED" or task.state == "PROGRESS":
             return {
                 "task_id": task_id,
-                "status": "processing",
+                "status": "PROCESSING",
                 "message": random.choice(PROCESSING_MESSAGES)
             }
         elif task.state == "SUCCESS":
             result = task.result
             return {
                 "task_id": task_id,
-                "status": "success",
+                "status": "SUCCESS",
                 "user_text": result.get("user_text", ""),
                 "ai_reply": result.get("ai_reply", ""),
                 "sentiment": result.get("sentiment", "comforting"),
@@ -221,14 +221,14 @@ async def get_task_result(task_id: str):
         elif task.state == "FAILURE":
             return {
                 "task_id": task_id,
-                "status": "error",
+                "status": "FAILURE",
                 "message": "앗, 잠깐 문제가 생겼어요. 다시 말씀해주세요!",
                 "error_detail": str(task.info) if task.info else None
             }
         else:
             return {
                 "task_id": task_id,
-                "status": task.state.lower(),
+                "status": task.state.upper(),
                 "message": "처리 중이에요..."
             }
     
