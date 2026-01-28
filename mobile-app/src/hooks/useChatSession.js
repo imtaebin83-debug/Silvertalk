@@ -331,69 +331,46 @@ const useChatSession = ({ initialSessionId = null, onError } = {}) => {
    * 세션 종료
    * 백엔드 API: PATCH /chat/sessions/{session_id}/finish?create_video=true
    */
-  const endSession = useCallback(
-    async (createVideo = false) => {
-      try {
-        stopSpeaking();
+  // mobile-app/src/hooks/useChatSession.js
 
-        if (!sessionId) {
-          return { success: true };
-        }
+const endSession = useCallback(
+  async (createVideo = false) => {
+    try {
+      stopSpeaking();
+      if (!sessionId) return { success: true };
 
-        // PATCH /chat/sessions/{session_id}/finish
-        // 백엔드가 turn_count < 3이면 400 에러를 반환하지만,
-        // polling 실패해도 사진이 있으면 영상 생성 가능하도록 처리
-        const url = `/chat/sessions/${sessionId}/finish?create_video=${createVideo}`;
-        const response = await api.request(url, { method: 'PATCH' });
+      const url = `/chat/sessions/${sessionId}/finish?create_video=${createVideo}`;
+      const response = await api.request(url, { method: 'PATCH' });
+      const data = await response.json(); // 백엔드 chat.py의 return 문을 받음
 
-        // 응답 파싱
-        const data = await response.json();
-
-        // 400 에러 (턴 수 부족) 처리 - 영상 생성 직접 요청
-        if (!response.ok) {
-          console.warn('세션 종료 API 실패:', data.detail);
-
-          // 턴 수 부족이어도 영상 생성을 원하면 직접 videos/generate 호출
-          if (createVideo) {
-            console.log('📹 턴 수 부족하지만 영상 생성 직접 요청...');
-            const videoResponse = await api.post('/videos/generate', {
-              session_id: sessionId,
-              video_type: 'slideshow',
-            });
-
-            if (videoResponse.task_id || videoResponse.video_id) {
-              return {
-                success: true,
-                videoTaskId: videoResponse.task_id || videoResponse.video_id,
-              };
-            }
-          }
-
-          // 영상 생성 안 하면 그냥 성공 처리
-          return { success: true };
-        }
-
-        // 영상 생성 Task ID 반환
-        if (createVideo && data.video_task_id) {
+      if (!response.ok) {
+        // 턴 수 부족 시 직접 생성 요청 로직 (기존 유지)
+        if (createVideo) {
+          const videoResponse = await api.post('/videos/generate', {
+            session_id: sessionId,
+            video_type: 'slideshow',
+          });
           return {
             success: true,
-            videoTaskId: data.video_task_id,
+            video_id: videoResponse.video_id, // [중요] video_id로 통일
           };
         }
-
         return { success: true };
-      } catch (error) {
-        console.error('세션 종료 실패:', error);
-
-        if (onError) {
-          onError(error);
-        }
-
-        return { success: false, error: error.message };
       }
-    },
-    [sessionId, stopSpeaking, onError]
-  );
+
+      // [핵심 수정] chat.py에서 준 video_id와 video_task_id를 모두 반환
+      return {
+        success: data.success || true,
+        video_id: data.video_id,         // ChatScreen에서 조회용으로 씀
+        videoTaskId: data.video_task_id, // 로그에 찍힌 Celery 태스크 ID
+      };
+    } catch (error) {
+      console.error('세션 종료 실패:', error);
+      return { success: false, error: error.message };
+    }
+  },
+  [sessionId, stopSpeaking]
+);
 
   /**
    * 세션 리셋

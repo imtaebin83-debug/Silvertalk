@@ -158,61 +158,41 @@ const ChatScreen = ({ route, navigation }) => {
   // 2단계: 추억 기록 여부 결정
   const confirmRecordMemory = async (wantToRecord) => {
     setShowRecordModal(false);
-
+  
     if (wantToRecord) {
       setIsCreatingVideo(true);
       try {
-        // 세션 종료 + 영상 생성 요청
         const result = await chatSession.endSession(true);
-
-        // [수정] video_task_id가 아닌 video_id를 사용하여 상태 조회 진행
-        if (result.success && result.video_id) {
+  
+        // [수정] useChatSession이 준 video_id가 있는지 확인
+        if (result && result.video_id) { 
           await pollForVideo(result.video_id);
         } else {
-          throw new Error('영상 생성 요청 실패');
+          // 이 에러가 났던 이유는 result.video_id가 없었기 때문
+          throw new Error('서버로부터 비디오 ID를 받지 못했습니다.');
         }
       } catch (error) {
         console.error('영상 생성 실패:', error);
         setIsCreatingVideo(false);
-        Alert.alert(
-          '알림',
-          '대화가 저장되었어요. 영상 생성은 나중에 시도해주세요.',
-          [{ text: '확인', onPress: () => navigation.navigate('Home') }]
-        );
-      }
-    } else {
-      try {
-        await chatSession.endSession(false);
-        Alert.alert(
-          '저장 완료',
-          '대화가 기록되었어요.',
-          [{ text: '확인', onPress: () => navigation.navigate('Home') }]
-        );
-      } catch (error) {
-        console.error('세션 종료 실패:', error);
-        navigation.navigate('Home');
+        Alert.alert('알림', '영상 생성 요청 중 오류가 발생했습니다.');
       }
     }
   };
-
-  // [수정] 비디오 ID를 기반으로 폴링 수행
+  
   const pollForVideo = async (videoId) => {
     const startTime = Date.now();
-    const timeout = 180000; // 3분
-
+    const timeout = 180000; 
+  
     while (Date.now() - startTime < timeout) {
       try {
-        // [수정] 경로를 /videos/{video_id}/status 로 정확히 요청
+        // [중요] 로그에 /api/task가 찍히지 않도록 /videos/{id}/status 경로 사용
+        // 백엔드 video.py의 @router.get("/{video_id}/status")와 일치해야 함
         const result = await api.get(`/videos/${videoId}/status`);
-
-        // [수정] 백엔드 VideoStatus enum과 일치하는지 확인 (SUCCESS 또는 COMPLETED)
+  
         if (result.status === 'SUCCESS' || result.status === 'COMPLETED') {
           setIsCreatingVideo(false);
-          Alert.alert(
-            '완료',
-            '추억 영상이 만들어졌어요! 추억 극장에서 확인해보세요.',
-            [{ text: '확인', onPress: () => navigation.navigate('Home') }]
-          );
+          Alert.alert('완료', '추억 영상이 만들어졌어요!');
+          navigation.navigate('Home');
           return;
         }
 
