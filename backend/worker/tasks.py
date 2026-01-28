@@ -608,6 +608,149 @@ def analyze_image(self: Task, image_path: str, prompt: str):
 
 
 # ============================================================
+# Celery 태스크: 사진 기반 첫 인사 생성 (Gemini Vision)
+# ============================================================
+@celery_app.task(bind=True, name="worker.tasks.generate_greeting")
+def generate_greeting(self: Task, photo_url: str, pet_name: str = "복실이", session_id: str = None):
+    """
+    사진을 분석하여 맞춤형 첫 인사 생성
+    
+    Args:
+        photo_url: S3 URL 또는 로컬 이미지 경로
+        pet_name: 반려견 이름 (기본: 복실이)
+        session_id: 세션 ID
+    
+    Returns:
+        dict: {
+            "status": "success",
+            "ai_reply": "인사 메시지",
+            "sentiment": "감정"
+        }
+    """
+    # Fallback 응답
+    FALLBACK_GREETING = {
+        "status": "success",
+        "ai_reply": f"안녕하세요! 저는 {pet_name}예요. 오늘 기분이 어떠세요? 멍!",
+        "sentiment": "happy",
+        "session_id": session_id
+    }
+    
+    try:
+        load_models()
+        
+        if gemini_model is None:
+            logger.error("Gemini 모델이 초기화되지 않았습니다.")
+            return FALLBACK_GREETING
+        
+        # 이미지 다운로드 (S3 URL인 경우)
+        local_image_path = None
+        try:
+            if photo_url.startswith("http"):
+                import tempfile
+                import urllib.request
+                
+                temp_dir = tempfile.gettempdir()
+                local_image_path = os.path.join(temp_dir, f"greeting_{session_id or 'temp'}_{os.getpid()}.jpg")
+                
+                logger.info(f"[Greeting] 이미지 다운로드: {photo_url}")
+                urllib.request.urlretrieve(photo_url, local_image_path)
+            else:
+                local_image_path = photo_url
+            
+            if not os.path.exists(local_image_path):
+                raise FileNotFoundError(f"이미지 파일 없음: {local_image_path}")
+            
+            # 이미지 로딩
+            from PIL import Image
+            image = Image.open(local_image_path)
+            logger.info(f"[Greeting] 이미지 로딩 완료: {image.size}")
+            
+        except Exception as img_error:
+            logger.warning(f"[Greeting] 이미지 로딩 실패: {img_error}, Fallback 사용")
+            return FALLBACK_GREETING
+        
+        # Gemini Vision으로 사진 분석 및 인사 생성
+        greeting_prompt = f"""
+당신은 노인 회상 치료를 돕는 친근한 AI 반려견 '{pet_name}'입니다.
+사용자가 보여준 사진을 보고, 따뜻하고 친근한 첫 인사를 해주세요.
+
+규칙:
+1. 사진에서 보이는 내용(장소, 인물, 상황 등)을 자연스럽게 언급하세요.
+2. 호기심이 가득한 강아지처럼 질문을 포함하세요.
+3. 2-3문장으로 간결하게 말하세요.
+4. 존댓말을 사용하고, 가끔 "멍!" 또는 "왈왈!"을 붙여주세요.
+5. 할머니/할아버지가 듣기 좋은 따뜻한 어조를 사용하세요.
+
+**중요: 반드시 아래 JSON 형식만 출력하세요. 다른 텍스트는 절대 포함하지 마세요.**
+예시:
+{{
+    "text": "인사 메시지",
+    "sentiment": "happy|curious|excited|nostalgic|comforting"
+}}
+"""
+        
+        try:
+            response = gemini_model.generate_content([greeting_prompt, image])
+            
+            if response and response.text:
+                import json
+                import re
+                
+                response_text = response.text.strip()
+                logger.info(f"[Greeting] Gemini 응답: {response_text[:100]}...")
+                
+                # JSON 추출
+                json_match = re.search(r'```(?:json)?\\s*(.*?)\\s*```', response_text, re.DOTALL)
+                if json_match:
+                    response_text = json_match.group(1)
+                
+                json_match = re.search(r'\\{[^{}]*\\}', response_text, re.DOTALL)
+                if json_match:
+                    response_text = json_match.group(0)
+                
+                try:
+                    greeting_data = json.loads(response_text)
+                    
+                    if "text" in greeting_data:
+                        logger.info(f"[Greeting] 생성 완료: {greeting_data['text'][:50]}...")
+                        return {
+                            "status": "success",
+                            "ai_reply": greeting_data["text"],
+                            "sentiment": greeting_data.get("sentiment", "happy"),
+                            "session_id": session_id
+                        }
+                except json.JSONDecodeError as e:
+                    logger.warning(f"[Greeting] JSON 파싱 실패: {e}")
+                    # JSON 파싱 실패 시 텍스트 직접 사용
+                    return {
+                        "status": "success",
+                        "ai_reply": response.text.strip()[:200],
+                        "sentiment": "happy",
+                        "session_id": session_id
+                    }
+            
+            return FALLBACK_GREETING
+            
+        except Exception as api_error:
+            logger.error(f"[Greeting] Gemini API 오류: {api_error}")
+            return FALLBACK_GREETING
+        
+        finally:
+            # 임시 파일 정리
+            if local_image_path and local_image_path != photo_url:
+                try:
+                    if os.path.exists(local_image_path):
+                        os.remove(local_image_path)
+                except:
+                    pass
+    
+    except Exception as e:
+        logger.error(f"[Greeting] 첫 인사 생성 실패: {str(e)}")
+        logger.error(traceback.format_exc())
+        return FALLBACK_GREETING
+
+
+# ============================================================
 # Celery 태스크: 텍스트 전용 대화 (테스트용)
 # ============================================================
 @celery_app.task(bind=True, name="worker.tasks.generate_reply_from_text")

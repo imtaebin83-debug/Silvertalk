@@ -80,17 +80,46 @@ const ChatScreen = ({ route, navigation }) => {
           chatSession.setSession(response.session_id);
         }
 
-        // 첫 인사 메시지 추가
-        const greetingMessage = {
-          role: 'assistant',
-          content: aiReply,
-          timestamp: new Date()
-        };
-        setLocalMessages([greetingMessage]);
-        console.log('✅ 첫 인사 메시지 설정:', aiReply);
+        console.log('📋 세션 생성 응답:', response);
 
-        // TTS로 첫 인사 재생
-        await chatSession.speakText(aiReply);
+        // greeting_task_id가 있으면 polling으로 첫 인사 받기
+        if (response.greeting_task_id) {
+          console.log('🔄 첫 인사 polling 시작:', response.greeting_task_id);
+
+          const greetingResult = await pollForGreeting(response.greeting_task_id);
+
+          if (greetingResult.success && greetingResult.ai_reply) {
+            const greetingMessage = {
+              role: 'assistant',
+              content: greetingResult.ai_reply,
+              timestamp: new Date()
+            };
+            setLocalMessages([greetingMessage]);
+
+            // TTS로 첫 인사 재생
+            if (chatSession.speakText) {
+              await chatSession.speakText(greetingResult.ai_reply);
+            }
+          } else {
+            // Polling 실패 시 fallback
+            throw new Error('첫 인사 생성 실패');
+          }
+        } else if (response.ai_reply) {
+          // 즉시 반환된 ai_reply 사용 (사진 없는 경우)
+          const greetingMessage = {
+            role: 'assistant',
+            content: response.ai_reply,
+            timestamp: new Date()
+          };
+          setLocalMessages([greetingMessage]);
+
+          if (chatSession.speakText) {
+            await chatSession.speakText(response.ai_reply);
+          }
+        } else {
+          // Fallback
+          throw new Error('인사 메시지 없음');
+        }
 
         // 연관 사진 업데이트
         if (response.related_photos) {
@@ -105,12 +134,50 @@ const ChatScreen = ({ route, navigation }) => {
         // Fallback 메시지
         const fallbackMessage = {
           role: 'assistant',
-          content: '안녕하세요! 저는 복실이에요. 오늘 기분이 어떠세요?',
+          content: '안녕하세요! 저는 복실이에요. 오늘 기분이 어떠세요? 멍!',
           timestamp: new Date()
         };
         setLocalMessages([fallbackMessage]);
-        await chatSession.speakText(fallbackMessage.content);
+        if (chatSession.speakText) {
+          await chatSession.speakText(fallbackMessage.content);
+        }
       }
+    };
+
+    // Polling 함수 (greeting 전용)
+    const pollForGreeting = async (taskId) => {
+      const startTime = Date.now();
+      const timeout = 30000; // 30초 타임아웃
+      const interval = 1000; // 1초 간격
+
+      while (Date.now() - startTime < timeout) {
+        try {
+          const result = await api.get(`/api/task/${taskId}`);
+          console.log('🐕 Greeting poll result:', result);
+
+          // 대소문자 구분 없이 체크
+          const statusLower = result.status?.toLowerCase();
+
+          if (statusLower === 'success') {
+            return {
+              success: true,
+              ai_reply: result.ai_reply
+            };
+          }
+
+          if (statusLower === 'failure' || statusLower === 'error') {
+            return { success: false, error: result.message };
+          }
+
+          // 대기
+          await new Promise(resolve => setTimeout(resolve, interval));
+        } catch (error) {
+          console.error('Greeting poll error:', error);
+          return { success: false, error: error.message };
+        }
+      }
+
+      return { success: false, error: 'timeout' };
     };
 
     if (initialSessionId) {
@@ -176,14 +243,14 @@ const ChatScreen = ({ route, navigation }) => {
   // 2단계: 추억 기록 여부 결정
   const confirmRecordMemory = async (wantToRecord) => {
     setShowRecordModal(false);
-  
+
     if (wantToRecord) {
       setIsCreatingVideo(true);
       try {
         const result = await chatSession.endSession(true);
-  
+
         // [수정] useChatSession이 준 video_id가 있는지 확인
-        if (result && result.video_id) { 
+        if (result && result.video_id) {
           await pollForVideo(result.video_id);
         } else {
           // 이 에러가 났던 이유는 result.video_id가 없었기 때문
@@ -196,25 +263,28 @@ const ChatScreen = ({ route, navigation }) => {
       }
     }
   };
-  
+
   const pollForVideo = async (videoId) => {
     const startTime = Date.now();
-    const timeout = 180000; 
-  
+    const timeout = 180000;
+
     while (Date.now() - startTime < timeout) {
       try {
         // [중요] 로그에 /api/task가 찍히지 않도록 /videos/{id}/status 경로 사용
         // 백엔드 video.py의 @router.get("/{video_id}/status")와 일치해야 함
         const result = await api.get(`/videos/${videoId}/status`);
-  
-        if (result.status === 'SUCCESS' || result.status === 'COMPLETED') {
+
+        // 대소문자 구분 없이 체크
+        const statusLower = result.status?.toLowerCase();
+
+        if (statusLower === 'success' || statusLower === 'completed') {
           setIsCreatingVideo(false);
           Alert.alert('완료', '추억 영상이 만들어졌어요!');
           navigation.navigate('Home');
           return;
         }
 
-        if (result.status === 'FAILURE' || result.status === 'FAILED') {
+        if (statusLower === 'failure' || statusLower === 'failed' || statusLower === 'error') {
           throw new Error('영상 생성 실패');
         }
 
@@ -259,34 +329,36 @@ const ChatScreen = ({ route, navigation }) => {
           style={styles.chatScrollView}
           contentContainerStyle={styles.chatContent}
         >
-          {/* 메시지 리스트 렌더링 */}
-          {[...localMessages, ...chatSession.messages].map((msg, index) => (
-            <View key={index} style={styles.messageRow}>
-              {msg.role === 'assistant' ? (
-                <View style={styles.assistantMessageContainer}>
-                  <Image source={DOG_IMAGE} style={styles.dogImage} />
-                  <View style={styles.assistantBubbleContainer}>
-                    <Text style={styles.senderName}>복실이</Text>
-                    <View style={styles.assistantBubble}>
-                      <Text style={styles.messageText}>{msg.content}</Text>
+          {(() => {
+            console.log('messages:', [...localMessages, ...chatSession.messages]);
+            return [...localMessages, ...chatSession.messages].map((msg, index) => (
+              <View key={index} style={styles.messageRow}>
+                {msg.role === 'assistant' ? (
+                  <View style={styles.assistantMessageContainer}>
+                    <Image source={DOG_IMAGE} style={styles.dogImage} />
+                    <View style={styles.assistantBubbleContainer}>
+                      <Text style={styles.senderName}>복실이</Text>
+                      <View style={styles.assistantBubble}>
+                        <Text style={styles.messageText}>{msg.content}</Text>
+                      </View>
                     </View>
                   </View>
-                </View>
-              ) : (
-                <View style={styles.userMessageContainer}>
-                  <View style={styles.userBubble}>
-                    <Text style={styles.userMessageText}>{msg.content}</Text>
+                ) : (
+                  <View style={styles.userMessageContainer}>
+                    <View style={styles.userBubble}>
+                      <Text style={styles.userMessageText}>{msg.content}</Text>
+                    </View>
                   </View>
-                </View>
-              )}
-            </View>
-          ))}
+                )}
+              </View>
+            ))
+          }
           {(chatSession.chatState === CHAT_STATES.POLLING || chatSession.chatState === CHAT_STATES.UPLOADING) && (
             <View style={styles.animationContainer}>
-              <DogAnimation 
-                emotion={chatSession.emotion} 
-                isAnimating={true} 
-                customMessage="복실이가 생각하고 있어요..." 
+              <DogAnimation
+                emotion={chatSession.emotion}
+                isAnimating={true}
+                customMessage="복실이가 생각하고 있어요..."
               />
             </View>
           )}

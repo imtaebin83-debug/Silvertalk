@@ -196,20 +196,25 @@ async def get_task_result(task_id: str):
     try:
         task = celery_app.AsyncResult(task_id)
         
-        if task.state == "pending":
+        # Celery 상태값을 소문자로 변환하여 비교
+        state = task.state.lower() if task.state else "pending"
+        logger.info(f"📋 Task {task_id} state: {state}")
+        
+        if state == "pending":
             return {
                 "task_id": task_id,
                 "status": "pending",
                 "message": random.choice(PENDING_MESSAGES)
             }
-        elif task.state == "started" or task.state == "progress":
+        elif state == "started" or state == "progress":
             return {
                 "task_id": task_id,
                 "status": "processing",
                 "message": random.choice(PROCESSING_MESSAGES)
             }
-        elif task.state == "success":
+        elif state == "success":
             result = task.result
+            logger.info(f"✅ Task {task_id} success, result: {result}")
             return {
                 "task_id": task_id,
                 "status": "success",
@@ -218,7 +223,7 @@ async def get_task_result(task_id: str):
                 "sentiment": result.get("sentiment", "comforting"),
                 "session_id": result.get("session_id")
             }
-        elif task.state == "failure":
+        elif state == "failure":
             return {
                 "task_id": task_id,
                 "status": "failure",
@@ -228,7 +233,7 @@ async def get_task_result(task_id: str):
         else:
             return {
                 "task_id": task_id,
-                "status": task.state.upper(),
+                "status": state,
                 "message": "처리 중이에요..."
             }
     

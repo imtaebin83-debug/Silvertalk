@@ -109,19 +109,19 @@ def test_celery_producer():
         start_time = time.time()
         
         while time.time() - start_time < max_wait:
-            state = result.state
+            state = result.state.lower() if result.state else "pending"
             logger.info(f"   상태: {state}")
             
-            if state == "SUCCESS":
+            if state == "success":
                 logger.info("✅ Task 성공!")
                 logger.info(f"   결과: {result.result}")
                 return True
             
-            elif state == "FAILURE":
+            elif state == "failure":
                 logger.error(f"❌ Task 실패: {result.info}")
                 return False
             
-            elif state in ["PENDING", "STARTED", "RETRY"]:
+            elif state in ["pending", "started", "retry"]:
                 logger.info(f"   처리 중... ({state})")
                 time.sleep(2)
             

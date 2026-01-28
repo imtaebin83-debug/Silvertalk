@@ -131,10 +131,10 @@ async def get_video_status(
     """
     영상 생성 상태 확인
     
-    - PENDING: 대기 중
-    - PROCESSING: 생성 중
-    - COMPLETED: 완료
-    - FAILED: 실패
+    - pending: 대기 중
+    - processing: 생성 중
+    - completed: 완료
+    - failed: 실패
     """
     video = db.query(GeneratedVideo).filter(
         GeneratedVideo.id == uuid.UUID(video_id)
@@ -143,13 +143,12 @@ async def get_video_status(
     if not video:
         raise HTTPException(status_code=404, detail="영상을 찾을 수 없습니다.")
     
-    # [수정 포인트] Enum 객체인 경우 .value를 추출하고, 아니면 문자열로 변환합니다.
-    # 이렇게 해야 프론트엔드의 if(result.status === 'COMPLETED') 조건문이 작동합니다.
-    status_str = video.status.value if hasattr(video.status, 'value') else str(video.status)
+    # 소문자로 통일: Enum value가 대문자여도 소문자로 변환하여 반환
+    status_str = video.status.value.lower() if hasattr(video.status, 'value') else str(video.status).lower()
     
     return {
         "video_id": str(video.id),
-        "status": status_str, # 문자열로 전달 (예: "PENDING", "COMPLETED")
+        "status": status_str,
         "video_url": video.video_url,
         "thumbnail_url": video.thumbnail_url,
         "created_at": video.created_at

@@ -70,7 +70,8 @@ class CreateSessionRequest(BaseModel):
 class CreateSessionResponse(BaseModel):
     """세션 생성 응답 (첫 인사 포함)"""
     session_id: str
-    ai_reply: str
+    greeting_task_id: Optional[str] = None  # 첫 인사 생성 태스크 ID (polling용)
+    ai_reply: Optional[str] = None  # 즉시 반환용 fallback 인사
     turn_count: int
     related_photos: List[dict] = []  # 연관 사진 정보
 
@@ -130,10 +131,12 @@ async def start_chat_session(
     Flow:
     1. kakao_id로 사용자 확인 (필수)
     2. ChatSession 생성 (photo_id는 optional)
-    3. 사진 정보 기반 첫 인사 생성
-    4. ChatLog에 첫 인사 저장
-    5. 연관 사진 추천
+    3. Gemini Vision으로 첫 인사 생성 (비동기 - task_id 반환)
+    4. 클라이언트에서 polling으로 결과 확인
     """
+    import logging
+    logger = logging.getLogger(__name__)
+    
     # kakao_id 필수 확인
     if not request.kakao_id:
         raise HTTPException(status_code=400, detail="kakao_id가 필요합니다.")
@@ -162,36 +165,43 @@ async def start_chat_session(
     db.add(session)
     db.flush()  # session.id 확보
 
-    # 첫 인사 생성
-    ai_reply = generate_first_greeting(photo, user.pet_name or "복실이")
-
-    # 첫 인사를 ChatLog에 저장
-    greeting_log = ChatLog(
-        session_id=session.id,
-        role="assistant",
-        content=ai_reply
-    )
-    db.add(greeting_log)
-
-    # photo가 있으면 SessionPhoto 추가 및 조회수 증가
-    if photo:
+    pet_name = user.pet_name or "복실이"
+    greeting_task_id = None
+    fallback_greeting = None
+    
+    # photo가 있고 s3_url이 있으면 Gemini Vision으로 첫 인사 생성
+    if photo and photo.s3_url:
+        # Celery 태스크로 첫 인사 생성 (비동기)
+        task = celery_app.send_task(
+            "worker.tasks.generate_greeting",
+            args=[photo.s3_url, pet_name, str(session.id)],
+            queue="ai_tasks"
+        )
+        greeting_task_id = task.id
+        logger.info(f"🐕 첫 인사 생성 태스크 시작: task_id={task.id}")
+        
+        # SessionPhoto 추가 및 조회수 증가
         session_photo = SessionPhoto(
             session_id=session.id,
             photo_id=photo.id,
-            s3_url=photo.s3_url,  # nullable=True이므로 None 가능
+            s3_url=photo.s3_url,
             display_order=0
         )
         db.add(session_photo)
         photo.view_count += 1
         photo.last_chat_session_id = session.id
-
-        # Vision AI 분석 (비동기) - s3_url이 있을 때만
-        if not photo.ai_analysis and photo.s3_url:
-            celery_app.send_task(
-                "worker.tasks.analyze_image",
-                args=[photo.s3_url, "이 사진에 대해 간단히 설명해주세요."],
-                queue="ai_tasks"
-            )
+    else:
+        # photo가 없거나 s3_url이 없으면 기본 인사 반환
+        fallback_greeting = f"안녕하세요! 저는 {pet_name}예요. 오늘 기분이 어떠세요? 멍!"
+        
+        # 기본 인사를 ChatLog에 저장
+        greeting_log = ChatLog(
+            session_id=session.id,
+            role="assistant",
+            content=fallback_greeting
+        )
+        db.add(greeting_log)
+        logger.info(f"🐕 기본 인사 사용 (사진 없음)")
 
     # 연관 사진 추천 (간단 버전)
     related_photos = []
@@ -218,7 +228,8 @@ async def start_chat_session(
 
     return CreateSessionResponse(
         session_id=str(session.id),
-        ai_reply=ai_reply,
+        greeting_task_id=greeting_task_id,
+        ai_reply=fallback_greeting,
         turn_count=session.turn_count,
         related_photos=related_photos
     )
