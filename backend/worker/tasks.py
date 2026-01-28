@@ -1444,7 +1444,7 @@ def generate_memory_video(
                 image_paths=local_photo_paths,
                 audio_path=narration_audio_path,  # BGM 또는 None
                 output_path=output_video_path,
-                duration_per_image=4.0  # 사진당 4초 (어르신 시청 고려)
+                duration_per_slide=4.0  # 사진당 4초 (어르신 시청 고려)
             )
         else:
             # Replicate SVD 애니메이션 (기존 로직)
