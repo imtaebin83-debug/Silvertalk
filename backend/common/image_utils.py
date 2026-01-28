@@ -103,6 +103,88 @@ def preprocess_image_for_ai(
         raise ImageProcessingError(f"이미지 처리 중 오류 발생: {str(e)}")
 
 
+def preprocess_image_file(
+    input_path: str,
+    output_path: str,
+    target_size: Tuple[int, int] = (1024, 1024),
+    jpeg_quality: int = 85
+) -> str:
+    """
+    파일 경로 기반 이미지 전처리 (영상 생성용)
+
+    Args:
+        input_path: 원본 이미지 파일 경로
+        output_path: 출력 이미지 파일 경로
+        target_size: 출력 이미지 크기 (width, height) - 기본 (1024, 1024)
+        jpeg_quality: JPEG 압축 품질 1-100 (기본 85)
+
+    Returns:
+        출력 파일 경로 (output_path)
+
+    Raises:
+        ImageProcessingError: 이미지 처리 실패 시
+
+    Example:
+        >>> preprocess_image_file(
+        ...     "/tmp/photo.jpg",
+        ...     "/tmp/photo_processed.jpg",
+        ...     target_size=(1920, 1080),
+        ...     jpeg_quality=95
+        ... )
+    """
+    try:
+        # 이미지 로드
+        image = Image.open(input_path)
+    except Exception as e:
+        raise ImageProcessingError(f"이미지를 열 수 없습니다: {input_path} - {str(e)}")
+
+    try:
+        # 1. RGB 변환
+        if image.mode != "RGB":
+            if image.mode == "RGBA":
+                background = Image.new("RGB", image.size, (255, 255, 255))
+                background.paste(image, mask=image.split()[3])
+                image = background
+            else:
+                image = image.convert("RGB")
+
+        # 2. 비율 유지 리사이징 (Crop 대신)
+        target_width, target_height = target_size
+        original_ratio = image.size[0] / image.size[1]
+        target_ratio = target_width / target_height
+
+        if original_ratio > target_ratio:
+            # 원본이 더 넓음 → 높이 맞추고 좌우 crop
+            new_height = target_height
+            new_width = int(target_height * original_ratio)
+        else:
+            # 원본이 더 높음 → 너비 맞추고 상하 crop
+            new_width = target_width
+            new_height = int(target_width / original_ratio)
+
+        image = image.resize((new_width, new_height), Image.LANCZOS)
+
+        # Center crop to exact target size
+        left = (new_width - target_width) // 2
+        top = (new_height - target_height) // 2
+        right = left + target_width
+        bottom = top + target_height
+        image = image.crop((left, top, right, bottom))
+
+        # 3. 저장
+        image.save(
+            output_path,
+            format="JPEG",
+            quality=jpeg_quality,
+            optimize=True
+        )
+
+        return output_path
+
+    except Exception as e:
+        raise ImageProcessingError(f"이미지 처리 중 오류 발생: {str(e)}")
+
+
 def get_image_info(image_bytes: bytes) -> Dict[str, Any]:
     """
     이미지 정보 조회 (디버깅/로깅용)
