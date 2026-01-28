@@ -637,7 +637,7 @@ async def finish_session(
             user_id=session.user_id, # 기존 로직 유지
             session_id=session.id,
             status=VideoStatus.PENDING,
-            video_type=VideoType.slideshow
+            video_type=VideoType.SLIDESHOW
         )
         db.add(new_video)
         db.commit()
