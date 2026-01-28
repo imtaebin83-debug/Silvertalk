@@ -1298,6 +1298,7 @@ def generate_memory_video(
         dict: 영상 URL 및 상태
     """
     db = None
+    video = None
     temp_files = []  # 정리할 임시 파일들
 
     try:
