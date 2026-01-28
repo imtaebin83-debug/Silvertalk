@@ -241,7 +241,9 @@ const ChatScreen = ({ route, navigation }) => {
           style={styles.chatScrollView}
           contentContainerStyle={styles.chatContent}
         >
-          {[...localMessages, ...chatSession.messages].map((msg, index) => (
+          {(() => {
+            console.log('messages:', [...localMessages, ...chatSession.messages]);
+            return [...localMessages, ...chatSession.messages].map((msg, index) => (
             <View key={index} style={styles.messageRow}>
               {msg.role === 'assistant' ? (
                 <View style={styles.assistantMessageContainer}>
