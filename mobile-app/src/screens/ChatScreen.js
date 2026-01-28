@@ -12,6 +12,7 @@ import {
   ActivityIndicator,
   Animated,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useKeepAwake } from 'expo-keep-awake';
 import { colors, fonts, commonStyles, sentimentEmoji } from '../theme';
 import api from '../api/config';
@@ -69,9 +70,24 @@ const ChatScreen = ({ route, navigation }) => {
         console.log('🚀 세션 시작 시도...');
         console.log('   - initialSessionId:', initialSessionId);
 
+        // AsyncStorage에서 실제 kakao_id 가져오기
+        const kakaoId = await AsyncStorage.getItem('kakaoId');
+
+        if (!kakaoId) {
+          console.error('❌ 로그인 정보가 없습니다.');
+          Alert.alert(
+            '로그인 필요',
+            '로그인 정보가 없습니다. 다시 로그인해주세요.',
+            [{ text: '확인', onPress: () => navigation.navigate('Login') }]
+          );
+          return;
+        }
+
+        console.log('   - kakaoId:', kakaoId);
+
         // 세션 시작 API 호출
         const response = await api.post('/chat/sessions', {
-          kakao_id: 'test_user', // 실제로는 로그인 정보에서 가져와야 함
+          kakao_id: kakaoId,
           photo_id: initialSessionId // photo_id로 사용
         });
 
