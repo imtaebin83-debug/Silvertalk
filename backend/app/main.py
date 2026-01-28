@@ -196,19 +196,19 @@ async def get_task_result(task_id: str):
     try:
         task = celery_app.AsyncResult(task_id)
         
-        if task.state == "PENDING":
+        if task.state == "pending":
             return {
                 "task_id": task_id,
                 "status": "pending",
                 "message": random.choice(PENDING_MESSAGES)
             }
-        elif task.state == "STARTED" or task.state == "PROGRESS":
+        elif task.state == "started" or task.state == "progress":
             return {
                 "task_id": task_id,
                 "status": "processing",
                 "message": random.choice(PROCESSING_MESSAGES)
             }
-        elif task.state == "SUCCESS":
+        elif task.state == "success":
             result = task.result
             return {
                 "task_id": task_id,
@@ -218,7 +218,7 @@ async def get_task_result(task_id: str):
                 "sentiment": result.get("sentiment", "comforting"),
                 "session_id": result.get("session_id")
             }
-        elif task.state == "FAILURE":
+        elif task.state == "failure":
             return {
                 "task_id": task_id,
                 "status": "failure",
