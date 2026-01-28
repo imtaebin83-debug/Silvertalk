@@ -275,6 +275,7 @@ const useChatSession = ({ initialSessionId = null, onError } = {}) => {
         }
 
         // 성공: 결과 처리
+        console.log('pollTask result.data:', result.data);
         const { user_text, ai_reply, sentiment } = result.data;
 
         // 사용자 메시지 업데이트
@@ -286,6 +287,11 @@ const useChatSession = ({ initialSessionId = null, onError } = {}) => {
 
         // 서버에 대화 저장 (실패해도 계속 진행)
         try {
+          console.log('save-ai-response body:', {
+            session_id: sessionId,
+            user_text: user_text || '',
+            ai_reply: ai_reply,
+          });
           await api.post('/chat/messages/save-ai-response', {
             session_id: sessionId,
             user_text: user_text || '',
@@ -425,6 +431,7 @@ const endSession = useCallback(
     endSession,
     resetSession,
     stopSpeaking,
+    speakText,
     setRecordingState,
     setSession,
 
