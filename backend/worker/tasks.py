@@ -886,3 +886,109 @@ def generate_memory_video(
         
         if db:
             db.close()
+
+
+# ============================================================
+# Celery 태스크: 기억 인사이트 추출
+# ============================================================
+@celery_app.task(bind=True, name="worker.tasks.extract_memory_insights")
+def extract_memory_insights(self: Task, session_id: str):
+    """
+    대화 종료 시 기억 인사이트 추출 (백그라운드)
+    
+    Args:
+        session_id: 대화 세션 ID
+    """
+    from common.database import get_db_session
+    from common.models import ChatSession, ChatLog, MemoryInsight
+    
+    db = None
+    try:
+        db = get_db_session()
+        
+        # 세션 조회
+        session = db.query(ChatSession).filter(ChatSession.id == session_id).first()
+        if not session:
+            logger.warning(f"세션 없음: {session_id}")
+            return
+        
+        # 모든 대화 로그 조회
+        logs = db.query(ChatLog).filter(ChatLog.session_id == session_id).order_by(ChatLog.created_at).all()
+        
+        if not logs:
+            logger.info(f"대화 로그 없음: {session_id}")
+            return
+        
+        # 대화 내용 합치기
+        conversation_text = "\n".join([f"{log.role}: {log.content}" for log in logs])
+        
+        # Gemini로 기억 인사이트 추출
+        prompt = f"""
+다음은 노인과 AI 강아지의 대화 내용입니다. 이 대화에서 추출할 수 있는 중요한 기억 정보를 찾아주세요.
+
+대화 내용:
+{conversation_text}
+
+다음 형식으로 JSON으로 응답해주세요:
+{{
+  "insights": [
+    {{
+      "category": "family|travel|food|hobby|etc",
+      "fact": "추출된 사실",
+      "importance": 1-5
+    }}
+  ]
+}}
+
+주의:
+- category는 family, travel, food, hobby 중 하나
+- fact는 구체적인 사실만
+- importance는 1(낮음)에서 5(높음)
+"""
+        
+        # 모델 로딩
+        load_models()
+        if gemini_model is None:
+            logger.error("Gemini 모델 로딩 실패")
+            return
+        
+        response = gemini_model.generate_content(prompt)
+        
+        if response and response.text:
+            import json
+            import re
+            
+            # JSON 파싱
+            response_text = response.text.strip()
+            json_match = re.search(r'```json\s*(.*?)\s*```', response_text, re.DOTALL)
+            if json_match:
+                response_text = json_match.group(1)
+            
+            try:
+                data = json.loads(response_text)
+                insights = data.get("insights", [])
+                
+                # DB 저장
+                for insight in insights:
+                    memory_insight = MemoryInsight(
+                        user_id=session.user_id,
+                        category=insight["category"],
+                        fact=insight["fact"],
+                        importance=insight["importance"],
+                        source_log_id=logs[-1].id if logs else None  # 마지막 로그
+                    )
+                    db.add(memory_insight)
+                
+                db.commit()
+                logger.info(f"기억 인사이트 추출 완료: {len(insights)}개")
+                
+            except json.JSONDecodeError as e:
+                logger.error(f"JSON 파싱 실패: {e}")
+        
+    except Exception as e:
+        logger.error(f"기억 인사이트 추출 실패: {str(e)}")
+        logger.error(traceback.format_exc())
+    
+    finally:
+        if db:
+            db.close()

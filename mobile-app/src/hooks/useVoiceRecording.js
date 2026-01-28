@@ -2,7 +2,7 @@
  * 음성 녹음 커스텀 훅
  * expo-av를 사용한 녹음 로직 캡슐화
  */
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { Audio } from 'expo-av';
 import { Alert } from 'react-native';
 
@@ -13,6 +13,29 @@ const useVoiceRecording = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [permissionGranted, setPermissionGranted] = useState(null);
   const recordingRef = useRef(null);
+
+  // 초기화: 권한 요청 및 오디오 모드 설정
+  useEffect(() => {
+    const initializeAudio = async () => {
+      try {
+        // 마이크 권한 요청
+        const granted = await requestPermission();
+        
+        // 오디오 모드 설정 (녹음용)
+        await Audio.setAudioModeAsync({
+          allowsRecordingIOS: true,
+          playsInSilentModeIOS: true,
+          staysActiveInBackground: false,
+        });
+        
+        console.log('🎤 오디오 초기화 완료:', granted ? '권한 허용' : '권한 거부');
+      } catch (error) {
+        console.error('오디오 초기화 실패:', error);
+      }
+    };
+
+    initializeAudio();
+  }, []);
 
   /**
    * 마이크 권한 요청
@@ -46,13 +69,6 @@ const useVoiceRecording = () => {
         Alert.alert('권한 필요', '마이크 권한이 필요합니다.');
         return false;
       }
-
-      // 오디오 모드 설정
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
-        staysActiveInBackground: false,
-      });
 
       // 녹음 시작 (Android AAC .m4a 포맷)
       const recordingOptions = {

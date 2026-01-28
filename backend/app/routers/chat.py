@@ -18,6 +18,43 @@ from common.config import settings
 # Worker의 Celery 앱 사용 (EC2와 RunPod 간 설정 일치)
 from worker.celery_app import celery_app
 
+def generate_first_greeting(photo, pet_name="복실이"):
+    """
+    사진 정보를 기반으로 첫 인사 생성
+    """
+    if not photo:
+        return f"안녕하세요! 저는 {pet_name}예요. 오늘 기분이 어떠세요?"
+    
+    greeting_parts = [f"우와, {pet_name}가 사진을 봤어요!"]
+    
+    if photo.location_name:
+        greeting_parts.append(f"{photo.location_name}에서 찍으셨네요!")
+    
+    if photo.taken_at:
+        # 날짜를 친근하게 표현
+        from datetime import datetime
+        taken_date = photo.taken_at.date()
+        today = datetime.now().date()
+        days_diff = (today - taken_date).days
+        
+        if days_diff == 0:
+            time_desc = "오늘"
+        elif days_diff == 1:
+            time_desc = "어제"
+        elif days_diff < 7:
+            time_desc = f"{days_diff}일 전"
+        elif days_diff < 30:
+            weeks = days_diff // 7
+            time_desc = f"{weeks}주 전"
+        else:
+            time_desc = f"{photo.taken_at.strftime('%Y년 %m월 %d일')}"
+        
+        greeting_parts.append(f"{time_desc}에 찍으신 사진이네요!")
+    
+    greeting_parts.append("이 사진에 대해 이야기해주세요!")
+    
+    return " ".join(greeting_parts)
+
 router = APIRouter(prefix="/chat", tags=["대화 서비스 (Chat & Memory)"])
 
 
@@ -28,6 +65,14 @@ class CreateSessionRequest(BaseModel):
     """세션 생성 요청"""
     kakao_id: Optional[str] = None
     photo_id: Optional[str] = None  # UserPhoto UUID 또는 로컬 asset ID
+
+
+class CreateSessionResponse(BaseModel):
+    """세션 생성 응답 (첫 인사 포함)"""
+    session_id: str
+    ai_reply: str
+    turn_count: int
+    related_photos: List[dict] = []  # 연관 사진 정보
 
 
 class ChatSessionResponse(BaseModel):
@@ -74,18 +119,20 @@ class AnimationResponse(BaseModel):
 # ============================================================
 # 대화 세션 시작
 # ============================================================
-@router.post("/sessions", response_model=ChatSessionResponse, summary="대화 세션 시작")
+@router.post("/sessions", response_model=CreateSessionResponse, summary="대화 세션 시작")
 async def start_chat_session(
     request: CreateSessionRequest,
     db: Session = Depends(get_db)
 ):
     """
-    사용자가 사진 1장을 선택하면 대화 세션 시작
+    사용자가 사진 1장을 선택하면 대화 세션 시작 (첫 인사 포함)
 
     Flow:
     1. kakao_id로 사용자 확인 (필수)
     2. ChatSession 생성 (photo_id는 optional)
-    3. S3에 사진 업로드 후 batch-upload에서 SessionPhoto 추가
+    3. 사진 정보 기반 첫 인사 생성
+    4. ChatLog에 첫 인사 저장
+    5. 연관 사진 추천
     """
     # kakao_id 필수 확인
     if not request.kakao_id:
@@ -115,6 +162,17 @@ async def start_chat_session(
     db.add(session)
     db.flush()  # session.id 확보
 
+    # 첫 인사 생성
+    ai_reply = generate_first_greeting(photo, user.pet_name or "복실이")
+
+    # 첫 인사를 ChatLog에 저장
+    greeting_log = ChatLog(
+        session_id=session.id,
+        role="assistant",
+        content=ai_reply
+    )
+    db.add(greeting_log)
+
     # photo가 있으면 SessionPhoto 추가 및 조회수 증가
     if photo:
         session_photo = SessionPhoto(
@@ -135,10 +193,35 @@ async def start_chat_session(
                 queue="ai_tasks"
             )
 
+    # 연관 사진 추천 (간단 버전)
+    related_photos = []
+    if photo and photo.taken_at:
+        # 같은 날짜 사진 추천
+        from datetime import timedelta
+        date_from = photo.taken_at - timedelta(days=7)
+        date_to = photo.taken_at + timedelta(days=7)
+        
+        related = (
+            db.query(UserPhoto)
+            .filter(
+                UserPhoto.user_id == user.id,
+                UserPhoto.id != photo.id,
+                UserPhoto.taken_at.between(date_from, date_to)
+            )
+            .limit(3)
+            .all()
+        )
+        related_photos = [{"id": str(p.id), "s3_url": p.s3_url} for p in related]
+
     db.commit()
     db.refresh(session)
 
-    return ChatSessionResponse.from_session(session)
+    return CreateSessionResponse(
+        session_id=str(session.id),
+        ai_reply=ai_reply,
+        turn_count=session.turn_count,
+        related_photos=related_photos
+    )
 
 
 # ============================================================
@@ -519,6 +602,13 @@ async def finish_session(
     session.summary = "할머니가 손주와 함께 바닷가에 갔던 추억을 이야기했습니다."
     
     db.commit()
+    
+    # 기억 인사이트 추출 (백그라운드)
+    celery_app.send_task(
+        'worker.tasks.extract_memory_insights',
+        args=[str(session.id)],
+        queue="ai_tasks"
+    )
     
     # 영상 생성 요청
     if create_video:

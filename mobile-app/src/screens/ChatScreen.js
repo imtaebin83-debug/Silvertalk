@@ -53,10 +53,51 @@ const ChatScreen = ({ route, navigation }) => {
 
   const scrollViewRef = useRef(null);
 
-  // 초기 인사
+  // 초기 인사 및 세션 시작
   useEffect(() => {
-    const greeting = '우와, 할머니 이 사진 어디서 찍은 거예요? 정말 멋진 곳이네요!';
-    setLocalMessages([{ role: 'assistant', content: greeting, timestamp: new Date() }]);
+    const startSessionAndGreet = async () => {
+      try {
+        // 세션 시작 API 호출
+        const response = await api.post('/chat/sessions', {
+          kakao_id: 'test_user', // 실제로는 로그인 정보에서 가져와야 함
+          photo_id: initialSessionId // photo_id로 사용
+        });
+
+        // 첫 인사 메시지 추가
+        const greetingMessage = { 
+          role: 'assistant', 
+          content: response.ai_reply, 
+          timestamp: new Date() 
+        };
+        setLocalMessages([greetingMessage]);
+
+        // TTS로 첫 인사 재생
+        await chatSession.speakText(response.ai_reply);
+
+        // 연관 사진 업데이트
+        if (response.related_photos) {
+          setRelatedPhotos(response.related_photos.map((photo, idx) => ({ 
+            ...photo, 
+            order: idx 
+          })));
+        }
+
+      } catch (error) {
+        console.error('세션 시작 실패:', error);
+        // Fallback 메시지
+        const fallbackMessage = { 
+          role: 'assistant', 
+          content: '안녕하세요! 저는 복실이에요. 오늘 기분이 어떠세요?', 
+          timestamp: new Date() 
+        };
+        setLocalMessages([fallbackMessage]);
+        await chatSession.speakText(fallbackMessage.content);
+      }
+    };
+
+    if (initialSessionId) {
+      startSessionAndGreet();
+    }
 
     return () => chatSession.stopSpeaking();
   }, [initialSessionId]);
