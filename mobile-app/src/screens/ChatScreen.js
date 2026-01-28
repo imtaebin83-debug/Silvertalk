@@ -327,14 +327,17 @@ const ChatScreen = ({ route, navigation }) => {
 
       {/* 하단: 채팅 영역 */}
       <View style={styles.chatSection}>
-        <ScrollView
+      <ScrollView
           ref={scrollViewRef}
           style={styles.chatScrollView}
           contentContainerStyle={styles.chatContent}
         >
+          {/* 1. 메시지 리스트 렌더링 구역 */}
           {(() => {
-            console.log('messages:', [...localMessages, ...chatSession.messages]);
-            return [...localMessages, ...chatSession.messages].map((msg, index) => (
+            const allMessages = [...localMessages, ...chatSession.messages];
+            console.log('현재 메시지 목록:', allMessages);
+            
+            return allMessages.map((msg, index) => (
               <View key={index} style={styles.messageRow}>
                 {msg.role === 'assistant' ? (
                   <View style={styles.assistantMessageContainer}>
@@ -354,8 +357,10 @@ const ChatScreen = ({ route, navigation }) => {
                   </View>
                 )}
               </View>
-            ))
-          }
+            ));
+          })() /* 👈 이 부분에 '()'와 '}'가 정확히 있어야 함수가 실행됩니다! */}
+
+          {/* 2. 애니메이션 구역 (조건부 렌더링) */}
           {(chatSession.chatState === CHAT_STATES.POLLING || chatSession.chatState === CHAT_STATES.UPLOADING) && (
             <View style={styles.animationContainer}>
               <DogAnimation
