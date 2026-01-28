@@ -468,7 +468,7 @@ async def send_voice_message(
 # ============================================================
 class SaveAIResponseRequest(BaseModel):
     session_id: str
-    user_text: str
+    user_text: Optional[str] = ""
     ai_reply: str
 
 @router.post("/messages/save-ai-response", summary="AI 응답 저장")
@@ -618,7 +618,7 @@ async def finish_session(
         from common.models import GeneratedVideo, VideoStatus, VideoType
 
         new_video = GeneratedVideo(
-            user_id=session_id.user_id, # 기존 로직 유지
+            user_id=session.user_id, # 기존 로직 유지
             session_id=session.id,
             status=VideoStatus.PENDING,
             video_type=VideoType.slideshow
