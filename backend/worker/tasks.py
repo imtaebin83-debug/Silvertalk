@@ -1343,7 +1343,9 @@ def generate_memory_video(
         if not session_photos:
             if not session.main_photo:
                 raise ValueError("세션에 사진이 없습니다.")
-            photo_records = [type('obj', (object,), {'photo_url': session.main_photo})]
+            # main_photo는 UserPhoto 객체이므로 s3_url 속성이 있음
+            # 하지만 안전을 위해 dummy 객체도 s3_url로 통일
+            photo_records = [type('obj', (object,), {'s3_url': session.main_photo.s3_url if hasattr(session.main_photo, 's3_url') else str(session.main_photo)})]
         else:
             photo_records = session_photos
 
@@ -1352,7 +1354,7 @@ def generate_memory_video(
         for i, photo in enumerate(photo_records):
             try:
                 # S3에서 다운로드
-                photo_url = photo.photo_url
+                photo_url = photo.s3_url
                 local_path = f"/app/data/photo_{video_id}_{i}.jpg"
                 temp_files.append(local_path)
                 
