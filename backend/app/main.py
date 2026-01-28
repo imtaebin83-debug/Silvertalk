@@ -215,14 +215,32 @@ async def get_task_result(task_id: str):
         elif state == "success":
             result = task.result
             logger.info(f"✅ Task {task_id} success, result: {result}")
-            return {
+            
+            # Celery task 결과를 그대로 전달 (다양한 스키마 지원)
+            response = {
                 "task_id": task_id,
                 "status": "success",
-                "user_text": result.get("user_text", ""),
-                "ai_reply": result.get("ai_reply", ""),
-                "sentiment": result.get("sentiment", "comforting"),
-                "session_id": result.get("session_id")
             }
+            
+            # AudioChatResult 필드
+            if result.get("user_text"):
+                response["user_text"] = result["user_text"]
+            if result.get("ai_reply"):
+                response["ai_reply"] = result["ai_reply"]
+            if result.get("sentiment"):
+                response["sentiment"] = result["sentiment"]
+            
+            # GreetingTaskResult 필드
+            if result.get("ai_greeting"):
+                response["ai_greeting"] = result["ai_greeting"]
+            if result.get("analysis"):
+                response["analysis"] = result["analysis"]
+            
+            # 공통 필드
+            if result.get("session_id"):
+                response["session_id"] = result["session_id"]
+            
+            return response
         elif state == "failure":
             return {
                 "task_id": task_id,

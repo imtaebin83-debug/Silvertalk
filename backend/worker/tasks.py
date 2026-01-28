@@ -25,6 +25,50 @@ from common.image_utils import preprocess_image_for_ai, ImageProcessingError
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
+# ============================================================
+# Type Safety Layer: 응답 포맷 검증 헬퍼
+# ============================================================
+def format_response(required_keys: list, data: dict, schema_name: str = "UnknownSchema") -> dict:
+    """
+    Celery 태스크 반환값 검증 및 포맷팅
+    
+    Args:
+        required_keys: 필수 필드 목록
+        data: 반환할 데이터 딕셔너리
+        schema_name: 스키마 이름 (디버깅용)
+    
+    Returns:
+        dict: 검증된 응답 딕셔너리
+    
+    Raises:
+        ValueError: 필수 키가 없는 경우
+    """
+    # 모든 UUID 필드를 문자열로 변환
+    for key in ["session_id", "user_id", "video_id", "task_id"]:
+        if key in data and data[key] is not None:
+            data[key] = str(data[key])
+    
+    # status는 소문자로 통일
+    if "status" in data:
+        data["status"] = str(data["status"]).lower()
+    
+    # 필수 키 검증
+    missing_keys = [k for k in required_keys if k not in data]
+    if missing_keys:
+        logger.warning(f"[{schema_name}] 누락된 필드: {missing_keys}")
+        # 누락된 필드에 기본값 설정
+        for key in missing_keys:
+            if key == "status":
+                data[key] = "error"
+            elif key == "message":
+                data[key] = "Unknown error"
+            else:
+                data[key] = ""
+    
+    logger.debug(f"[{schema_name}] 검증 완료: {list(data.keys())}")
+    return data
+
 # ============================================================
 # 동적 디바이스 감지 (Lazy 초기화)
 # ============================================================
@@ -351,21 +395,30 @@ def process_audio_and_reply(self: Task, audio_url: str, user_id: str, session_id
         
         logger.info(f"[완료] 텍스트 응답 생성 완료 (sentiment={sentiment})")
         
-        return {
-            "status": "success",
-            "user_text": user_text,
-            "ai_reply": ai_reply,
-            "sentiment": sentiment,
-            "session_id": session_id  # 클라이언트에서 DB 저장용
-        }
+        # AudioChatResult 스키마에 맞게 반환
+        return format_response(
+            required_keys=["status", "user_text", "ai_reply", "sentiment", "session_id"],
+            data={
+                "status": "success",
+                "user_text": user_text,
+                "ai_reply": ai_reply,
+                "sentiment": sentiment,
+                "session_id": session_id
+            },
+            schema_name="AudioChatResult"
+        )
     
     except Exception as e:
         logger.error(f"❌ 음성 처리 실패: {str(e)}")
         logger.error(traceback.format_exc())
-        return {
-            "status": "error",
-            "message": str(e)
-        }
+        return format_response(
+            required_keys=["status", "message"],
+            data={
+                "status": "error",
+                "message": str(e)
+            },
+            schema_name="AudioChatResult"
+        )
 
 
 # ============================================================
@@ -611,51 +664,63 @@ def analyze_image(self: Task, image_path: str, prompt: str):
 # Celery 태스크: 사진 기반 첫 인사 생성 (Gemini Vision)
 # ============================================================
 @celery_app.task(bind=True, name="worker.tasks.generate_greeting")
-def generate_greeting(self: Task, photo_url: str, pet_name: str = "복실이", session_id: str = None):
+def generate_greeting(self: Task, image_url: str, pet_name: str = "복실이", session_id: str = None):
     """
     사진을 분석하여 맞춤형 첫 인사 생성
     
     Args:
-        photo_url: S3 URL 또는 로컬 이미지 경로
+        image_url: S3 URL 또는 로컬 이미지 경로
         pet_name: 반려견 이름 (기본: 복실이)
         session_id: 세션 ID
     
     Returns:
-        dict: {
+        GreetingTaskResult 스키마:
+        {
             "status": "success",
-            "ai_reply": "인사 메시지",
-            "sentiment": "감정"
+            "ai_greeting": "인사 메시지",
+            "analysis": "이미지 분석 요약",
+            "session_id": "uuid-string"
         }
     """
+    # 스키마 필수 필드
+    REQUIRED_KEYS = ["status", "ai_greeting", "session_id"]
+    
     # Fallback 응답
-    FALLBACK_GREETING = {
-        "status": "success",
-        "ai_reply": f"안녕하세요! 저는 {pet_name}예요. 오늘 기분이 어떠세요? 멍!",
-        "sentiment": "happy",
-        "session_id": session_id
-    }
+    def fallback_response(message: str = None):
+        return format_response(
+            required_keys=REQUIRED_KEYS,
+            data={
+                "status": "success",
+                "ai_greeting": message or f"안녕하세요! 저는 {pet_name}예요. 사진이 참 좋아 보여요! 오늘 기분이 어떠세요? 멍!",
+                "analysis": None,
+                "session_id": session_id
+            },
+            schema_name="GreetingTaskResult"
+        )
     
     try:
         load_models()
         
         if gemini_model is None:
             logger.error("Gemini 모델이 초기화되지 않았습니다.")
-            return FALLBACK_GREETING
+            return fallback_response()
         
         # 이미지 다운로드 (S3 URL인 경우)
         local_image_path = None
+        image_analysis = None
+        
         try:
-            if photo_url.startswith("http"):
+            if image_url.startswith("http"):
                 import tempfile
                 import urllib.request
                 
                 temp_dir = tempfile.gettempdir()
                 local_image_path = os.path.join(temp_dir, f"greeting_{session_id or 'temp'}_{os.getpid()}.jpg")
                 
-                logger.info(f"[Greeting] 이미지 다운로드: {photo_url}")
-                urllib.request.urlretrieve(photo_url, local_image_path)
+                logger.info(f"[Greeting] 이미지 다운로드: {image_url}")
+                urllib.request.urlretrieve(image_url, local_image_path)
             else:
-                local_image_path = photo_url
+                local_image_path = image_url
             
             if not os.path.exists(local_image_path):
                 raise FileNotFoundError(f"이미지 파일 없음: {local_image_path}")
@@ -667,9 +732,21 @@ def generate_greeting(self: Task, photo_url: str, pet_name: str = "복실이", s
             
         except Exception as img_error:
             logger.warning(f"[Greeting] 이미지 로딩 실패: {img_error}, Fallback 사용")
-            return FALLBACK_GREETING
+            return fallback_response()
         
-        # Gemini Vision으로 사진 분석 및 인사 생성
+        # Gemini Vision으로 사진 분석 및 인사 생성 (2단계)
+        # Step 1: 이미지 분석
+        analysis_prompt = "이 사진에서 보이는 장소, 인물, 상황을 간단히 설명해주세요. 50자 이내로 답변하세요."
+        try:
+            analysis_response = gemini_model.generate_content([analysis_prompt, image])
+            if analysis_response and analysis_response.text:
+                image_analysis = analysis_response.text.strip()[:100]
+                logger.info(f"[Greeting] 이미지 분석: {image_analysis}")
+        except Exception as e:
+            logger.warning(f"[Greeting] 이미지 분석 실패: {e}")
+            image_analysis = "사진 분석 실패"
+        
+        # Step 2: 인사 생성
         greeting_prompt = f"""
 당신은 노인 회상 치료를 돕는 친근한 AI 반려견 '{pet_name}'입니다.
 사용자가 보여준 사진을 보고, 따뜻하고 친근한 첫 인사를 해주세요.
@@ -681,63 +758,53 @@ def generate_greeting(self: Task, photo_url: str, pet_name: str = "복실이", s
 4. 존댓말을 사용하고, 가끔 "멍!" 또는 "왈왈!"을 붙여주세요.
 5. 할머니/할아버지가 듣기 좋은 따뜻한 어조를 사용하세요.
 
-**중요: 반드시 아래 JSON 형식만 출력하세요. 다른 텍스트는 절대 포함하지 마세요.**
-예시:
-{{
-    "text": "인사 메시지",
-    "sentiment": "happy|curious|excited|nostalgic|comforting"
-}}
+**중요: JSON 없이 순수 인사 텍스트만 출력하세요.**
 """
         
         try:
             response = gemini_model.generate_content([greeting_prompt, image])
             
             if response and response.text:
+                ai_greeting = response.text.strip()
+                
+                # JSON 형식이 포함된 경우 텍스트만 추출
                 import json
                 import re
                 
-                response_text = response.text.strip()
-                logger.info(f"[Greeting] Gemini 응답: {response_text[:100]}...")
-                
-                # JSON 추출
-                json_match = re.search(r'```(?:json)?\\s*(.*?)\\s*```', response_text, re.DOTALL)
+                # JSON 패턴 제거 시도
+                json_match = re.search(r'\{[^{}]*"text"\s*:\s*"([^"]+)"', ai_greeting)
                 if json_match:
-                    response_text = json_match.group(1)
+                    ai_greeting = json_match.group(1)
+                else:
+                    # 코드블록 제거
+                    ai_greeting = re.sub(r'```.*?```', '', ai_greeting, flags=re.DOTALL)
+                    ai_greeting = ai_greeting.strip()
                 
-                json_match = re.search(r'\\{[^{}]*\\}', response_text, re.DOTALL)
-                if json_match:
-                    response_text = json_match.group(0)
+                # 200자 제한
+                ai_greeting = ai_greeting[:200]
                 
-                try:
-                    greeting_data = json.loads(response_text)
-                    
-                    if "text" in greeting_data:
-                        logger.info(f"[Greeting] 생성 완료: {greeting_data['text'][:50]}...")
-                        return {
-                            "status": "success",
-                            "ai_reply": greeting_data["text"],
-                            "sentiment": greeting_data.get("sentiment", "happy"),
-                            "session_id": session_id
-                        }
-                except json.JSONDecodeError as e:
-                    logger.warning(f"[Greeting] JSON 파싱 실패: {e}")
-                    # JSON 파싱 실패 시 텍스트 직접 사용
-                    return {
+                logger.info(f"[Greeting] 생성 완료: {ai_greeting[:50]}...")
+                
+                return format_response(
+                    required_keys=REQUIRED_KEYS,
+                    data={
                         "status": "success",
-                        "ai_reply": response.text.strip()[:200],
-                        "sentiment": "happy",
+                        "ai_greeting": ai_greeting,
+                        "analysis": image_analysis,
                         "session_id": session_id
-                    }
+                    },
+                    schema_name="GreetingTaskResult"
+                )
             
-            return FALLBACK_GREETING
+            return fallback_response()
             
         except Exception as api_error:
             logger.error(f"[Greeting] Gemini API 오류: {api_error}")
-            return FALLBACK_GREETING
+            return fallback_response()
         
         finally:
             # 임시 파일 정리
-            if local_image_path and local_image_path != photo_url:
+            if local_image_path and local_image_path != image_url:
                 try:
                     if os.path.exists(local_image_path):
                         os.remove(local_image_path)
@@ -747,7 +814,15 @@ def generate_greeting(self: Task, photo_url: str, pet_name: str = "복실이", s
     except Exception as e:
         logger.error(f"[Greeting] 첫 인사 생성 실패: {str(e)}")
         logger.error(traceback.format_exc())
-        return FALLBACK_GREETING
+        return format_response(
+            required_keys=["status", "message", "session_id"],
+            data={
+                "status": "failure",
+                "message": f"이미지를 분석할 수 없습니다: {str(e)}",
+                "session_id": session_id
+            },
+            schema_name="GreetingTaskResult"
+        )
 
 
 # ============================================================
@@ -783,6 +858,210 @@ def generate_reply_from_text(self: Task, user_text: str, user_id: str, session_i
             "status": "error",
             "message": str(e)
         }
+
+
+# ============================================================
+# Celery 태스크: 기억 인사이트 추출 (Memory Insight Extraction)
+# ============================================================
+@celery_app.task(bind=True, name="worker.tasks.extract_memory_insights")
+def extract_memory_insights(self: Task, session_id: str, chat_logs: list):
+    """
+    대화 내용에서 의미 있는 기억을 추출
+    
+    Args:
+        session_id: 대화 세션 ID (문자열)
+        chat_logs: 대화 로그 리스트 [{"role": "user"|"assistant", "content": "..."}]
+    
+    Returns:
+        InsightTaskResult 스키마:
+        {
+            "status": "success",
+            "session_id": "...",
+            "insights": [
+                {"category": "family", "fact": "손주와 함께...", "importance": 4},
+                ...
+            ]
+        }
+    """
+    # 스키마 필수 필드
+    REQUIRED_KEYS = ["status", "session_id", "insights"]
+    VALID_CATEGORIES = ["family", "travel", "food", "hobby", "emotion", "other"]
+    
+    try:
+        load_models()
+        
+        if gemini_model is None:
+            logger.error("[Insight] Gemini 모델이 초기화되지 않았습니다.")
+            return format_response(
+                required_keys=REQUIRED_KEYS,
+                data={
+                    "status": "failure",
+                    "session_id": session_id,
+                    "insights": [],
+                    "error": "Gemini 모델 초기화 실패"
+                },
+                schema_name="InsightTaskResult"
+            )
+        
+        # 빈 대화 로그 체크
+        if not chat_logs or len(chat_logs) == 0:
+            logger.warning(f"[Insight] 세션 {session_id}의 대화 로그가 비어있습니다.")
+            return format_response(
+                required_keys=REQUIRED_KEYS,
+                data={
+                    "status": "success",
+                    "session_id": session_id,
+                    "insights": []
+                },
+                schema_name="InsightTaskResult"
+            )
+        
+        # 대화 로그를 텍스트로 변환
+        conversation_text = "\n".join([
+            f"{'사용자' if log['role'] == 'user' else 'AI'}: {log['content']}"
+            for log in chat_logs
+            if log.get('content')
+        ])
+        
+        logger.info(f"[Insight] 대화 분석 시작 (세션: {session_id}, 로그 수: {len(chat_logs)})")
+        
+        # Gemini 프롬프트 (회상 요법 전문가 역할)
+        insight_prompt = f"""
+당신은 노인 회상 치료(Reminiscence Therapy) 전문가입니다.
+아래 대화에서 사용자가 언급한 의미 있는 기억과 감정을 추출해주세요.
+
+**규칙:**
+1. 단순한 인사나 "네", "아니오" 같은 답변은 무시하세요.
+2. 사용자가 언급한 장소, 인물, 음식, 취미, 감정 등 구체적인 내용만 추출하세요.
+3. 각 기억에 대해 중요도(1-5)를 평가하세요:
+   - 5: 매우 중요 (가족 이야기, 특별한 추억)
+   - 4: 중요 (여행, 이벤트)
+   - 3: 보통 (취미, 일상적 활동)
+   - 2: 낮음 (일반적인 선호)
+   - 1: 매우 낮음 (사소한 언급)
+4. 추출된 사실(fact)은 한국어로 자연스러운 문장으로 작성하세요.
+5. 카테고리: family, travel, food, hobby, emotion, other
+
+**중요: 반드시 아래 JSON 배열 형식만 출력하세요. 다른 텍스트는 절대 포함하지 마세요.**
+
+예시:
+[
+    {{"category": "family", "fact": "손주 민수와 함께 공원에서 놀았다", "importance": 5}},
+    {{"category": "travel", "fact": "부산 해운대에서 바다를 봤다", "importance": 4}}
+]
+
+의미 있는 기억이 없으면 빈 배열 []을 반환하세요.
+
+---
+대화 내용:
+{conversation_text}
+"""
+        
+        try:
+            response = gemini_model.generate_content(insight_prompt)
+            
+            if response and response.text:
+                import json
+                import re
+                
+                response_text = response.text.strip()
+                logger.info(f"[Insight] Gemini 응답: {response_text[:200]}...")
+                
+                # JSON 배열 추출
+                # 코드블록 제거
+                json_match = re.search(r'```(?:json)?\s*(.*?)\s*```', response_text, re.DOTALL)
+                if json_match:
+                    response_text = json_match.group(1)
+                
+                # 배열 패턴 매칭
+                array_match = re.search(r'\[.*\]', response_text, re.DOTALL)
+                if array_match:
+                    response_text = array_match.group(0)
+                
+                try:
+                    insights_raw = json.loads(response_text)
+                    
+                    # 유효성 검증 및 정제
+                    insights = []
+                    for item in insights_raw:
+                        if isinstance(item, dict) and "category" in item and "fact" in item:
+                            # 카테고리 검증
+                            category = item["category"].lower()
+                            if category not in VALID_CATEGORIES:
+                                category = "other"
+                            
+                            # 중요도 검증 (1-5 범위)
+                            importance = int(item.get("importance", 3))
+                            importance = max(1, min(5, importance))
+                            
+                            insights.append({
+                                "category": category,
+                                "fact": str(item["fact"]),
+                                "importance": importance
+                            })
+                    
+                    logger.info(f"[Insight] 추출 완료: {len(insights)}개 인사이트")
+                    
+                    return format_response(
+                        required_keys=REQUIRED_KEYS,
+                        data={
+                            "status": "success",
+                            "session_id": session_id,
+                            "insights": insights
+                        },
+                        schema_name="InsightTaskResult"
+                    )
+                    
+                except json.JSONDecodeError as e:
+                    logger.warning(f"[Insight] JSON 파싱 실패: {e}")
+                    return format_response(
+                        required_keys=REQUIRED_KEYS,
+                        data={
+                            "status": "failure",
+                            "session_id": session_id,
+                            "insights": [],
+                            "error": f"JSON 파싱 실패: {str(e)}"
+                        },
+                        schema_name="InsightTaskResult"
+                    )
+            
+            # 응답이 없는 경우
+            return format_response(
+                required_keys=REQUIRED_KEYS,
+                data={
+                    "status": "success",
+                    "session_id": session_id,
+                    "insights": []
+                },
+                schema_name="InsightTaskResult"
+            )
+            
+        except Exception as api_error:
+            logger.error(f"[Insight] Gemini API 오류: {api_error}")
+            return format_response(
+                required_keys=REQUIRED_KEYS,
+                data={
+                    "status": "failure",
+                    "session_id": session_id,
+                    "insights": [],
+                    "error": str(api_error)
+                },
+                schema_name="InsightTaskResult"
+            )
+    
+    except Exception as e:
+        logger.error(f"[Insight] 기억 인사이트 추출 실패: {str(e)}")
+        logger.error(traceback.format_exc())
+        return format_response(
+            required_keys=["status", "session_id", "error"],
+            data={
+                "status": "failure",
+                "session_id": session_id,
+                "insights": [],
+                "error": str(e)
+            },
+            schema_name="InsightTaskResult"
+        )
 
 
 # ============================================================

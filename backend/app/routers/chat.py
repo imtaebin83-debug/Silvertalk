@@ -618,9 +618,14 @@ async def finish_session(
     db.commit()
     
     # 기억 인사이트 추출 (백그라운드)
+    # ChatLog를 dict 형태로 직렬화하여 전달
+    chat_logs_serialized = [
+        {"role": log.role, "content": log.content}
+        for log in logs
+    ]
     celery_app.send_task(
         'worker.tasks.extract_memory_insights',
-        args=[str(session.id)],
+        args=[str(session.id), chat_logs_serialized],
         queue="ai_tasks"
     )
     

@@ -159,9 +159,12 @@ const ChatScreen = ({ route, navigation }) => {
           const statusLower = result.status?.toLowerCase();
 
           if (statusLower === 'success') {
+            // GreetingTaskResult 스키마: ai_greeting 필드 사용 (ai_reply fallback)
+            const greeting = result.ai_greeting || result.ai_reply;
             return {
               success: true,
-              ai_reply: result.ai_reply
+              ai_reply: greeting,
+              analysis: result.analysis
             };
           }
 

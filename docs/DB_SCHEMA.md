@@ -214,6 +214,27 @@ class VideoType(str, Enum):
 - `idx_memory_insights_category` (category)
 - `idx_memory_insights_importance` (importance)
 
+**Celery Task 결과 스키마 (InsightTaskResult):**
+```python
+# worker.tasks.extract_memory_insights 반환값
+{
+    "status": "success",       # 소문자
+    "session_id": "uuid-str",  # 문자열
+    "insights": [
+        {
+            "category": "family",            # family, travel, food, hobby, emotion, other
+            "fact": "손주와 함께 부산 바닷가에 다녀왔다",  # 한국어 자연스러운 문장
+            "importance": 4                  # 1-5 척도
+        },
+        {
+            "category": "emotion",
+            "fact": "바다를 보며 행복했던 추억이 떠올랐다",
+            "importance": 3
+        }
+    ]
+}
+```
+
 ---
 
 ## Enum 정의 (공통)

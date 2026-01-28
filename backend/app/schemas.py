@@ -80,6 +80,24 @@ class GreetingTaskResult(BaseModel):
 
 
 # ============================================================
+# 기억 인사이트 추출 태스크 결과 (Memory Insight)
+# ============================================================
+class MemoryInsightItem(BaseModel):
+    """개별 기억 인사이트 항목"""
+    category: str = Field(..., description="카테고리 (family, travel, food, hobby, emotion, other)")
+    fact: str = Field(..., description="추출된 사실 (예: '손주와 함께 부산 바닷가에 다녀왔다')")
+    importance: int = Field(..., ge=1, le=5, description="중요도 (1-5)")
+
+
+class InsightTaskResult(BaseModel):
+    """extract_memory_insights 태스크 결과"""
+    status: str = Field("success", description="작업 상태 (success, failure)")
+    session_id: str = Field(..., description="세션 UUID (문자열)")
+    insights: List[MemoryInsightItem] = Field(default=[], description="추출된 인사이트 목록")
+    error: Optional[str] = Field(None, description="에러 메시지 (실패 시)")
+
+
+# ============================================================
 # 데이터베이스 모델 (향후 확장용)
 # ============================================================
 class User(BaseModel):
