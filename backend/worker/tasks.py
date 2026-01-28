@@ -340,30 +340,48 @@ def preload_models(self: Task):
 
 
 # ============================================================
-# Celery 태스크: 음성 대화 처리 (STT + Brain + TTS)
+# Celery 태스크: 음성 대화 처리 (STT + Brain + Summary-Buffer Memory)
 # ============================================================
 @celery_app.task(bind=True, name="worker.tasks.process_audio_and_reply")
-def process_audio_and_reply(self: Task, audio_url: str, user_id: str, session_id: str = None):
+def process_audio_and_reply(
+    self: Task,
+    audio_url: str,
+    user_id: str,
+    session_id: str = None,
+    summary: str = "",
+    recent_logs: list = None,
+    turn_count: int = 0
+):
     """
-    음성 파일을 받아 AI 대화 처리
+    음성 파일을 받아 AI 대화 처리 (Summary-Buffer Memory 적용)
     
     Flow:
     1. S3에서 음성 파일 다운로드
     2. STT: Faster-Whisper로 음성 → 텍스트
-    3. Brain: Gemini로 대화 생성
+    3. Brain: 요약 + 최근 대화 컨텍스트로 Gemini 응답 생성
+    4. 매 3턴마다 대화 요약 업데이트
     
     Args:
         audio_url: S3 URL (EC2에서 업로드됨)
         user_id: 사용자 ID
-        session_id: 대화 세션 ID (옵션)
+        session_id: 대화 세션 ID
+        summary: 현재까지의 대화 요약 (Summary-Buffer Memory)
+        recent_logs: 최근 대화 로그 [{"role": "user"|"assistant", "content": "..."}]
+        turn_count: 현재 대화 턴 수
     
     Returns:
         dict: {
+            "status": "success",
             "user_text": 사용자 음성 텍스트,
             "ai_reply": AI 답변 텍스트,
-            "sentiment": 감정
+            "sentiment": 감정,
+            "new_summary": 업데이트된 요약 (3턴마다),
+            "session_id": 세션 ID
         }
     """
+    if recent_logs is None:
+        recent_logs = []
+    
     try:
         # 모델 로딩 (첫 실행 시에만)
         load_models()
@@ -386,25 +404,38 @@ def process_audio_and_reply(self: Task, audio_url: str, user_id: str, session_id
         except Exception as e:
             logger.warning(f"임시 파일 삭제 실패 (무시): {e}")
         
-        # Step 2: Brain (Gemini로 대화 생성 - JSON 반환)
-        logger.info(f"[Brain] AI 답변 생성 중...")
-        reply_data = generate_reply(user_text, user_id, session_id)
+        # Step 2: Brain (Summary-Buffer Memory 적용한 Gemini 응답 생성)
+        logger.info(f"[Brain] AI 답변 생성 중... (턴 수: {turn_count})")
+        reply_data = generate_reply_with_memory(
+            user_text=user_text,
+            summary=summary,
+            recent_logs=recent_logs,
+            turn_count=turn_count
+        )
         ai_reply = reply_data["text"]
         sentiment = reply_data["sentiment"]
-        logger.info(f"[Brain] AI 답변: {ai_reply} (sentiment={sentiment})")
+        new_summary = reply_data.get("new_summary")
         
-        logger.info(f"[완료] 텍스트 응답 생성 완료 (sentiment={sentiment})")
+        logger.info(f"[Brain] AI 답변: {ai_reply[:50]}... (sentiment={sentiment})")
+        if new_summary:
+            logger.info(f"[Memory] 요약 업데이트: {new_summary[:50]}...")
         
         # AudioChatResult 스키마에 맞게 반환
+        result = {
+            "status": "success",
+            "user_text": user_text,
+            "ai_reply": ai_reply,
+            "sentiment": sentiment,
+            "session_id": session_id
+        }
+        
+        # 요약이 업데이트된 경우에만 추가
+        if new_summary:
+            result["new_summary"] = new_summary
+        
         return format_response(
             required_keys=["status", "user_text", "ai_reply", "sentiment", "session_id"],
-            data={
-                "status": "success",
-                "user_text": user_text,
-                "ai_reply": ai_reply,
-                "sentiment": sentiment,
-                "session_id": session_id
-            },
+            data=result,
             schema_name="AudioChatResult"
         )
     
@@ -419,6 +450,7 @@ def process_audio_and_reply(self: Task, audio_url: str, user_id: str, session_id
             },
             schema_name="AudioChatResult"
         )
+
 
 
 # ============================================================
@@ -453,9 +485,182 @@ def transcribe_audio(audio_path: str) -> str:
         logger.error(f"STT 실패: {str(e)}")
         return ""
 
+# ============================================================
+# Brain: Summary-Buffer Memory 적용 응답 생성
+# ============================================================
+def generate_reply_with_memory(
+    user_text: str,
+    summary: str = "",
+    recent_logs: list = None,
+    turn_count: int = 0
+) -> dict:
+    """
+    Summary-Buffer Memory를 적용한 AI 답변 생성
+    
+    Args:
+        user_text: 사용자 입력 텍스트
+        summary: 현재까지의 대화 요약
+        recent_logs: 최근 대화 로그 [{"role": "...", "content": "..."}]
+        turn_count: 현재 대화 턴 수
+    
+    Returns:
+        dict: {"text": "답변", "sentiment": "...", "new_summary": "..."(옵션)}
+    """
+    if recent_logs is None:
+        recent_logs = []
+    
+    # Fallback 응답
+    FALLBACK_RESPONSE = {
+        "text": "할머니, 제가 잘 못 들었어요. 다시 말씀해 주시겠어요? 멍!",
+        "sentiment": "curious"
+    }
+    
+    if gemini_model is None:
+        logger.error("Gemini 모델이 초기화되지 않았습니다.")
+        return FALLBACK_RESPONSE
+    
+    try:
+        # 최근 대화 컨텍스트 구성
+        recent_context = ""
+        if recent_logs:
+            recent_context = "\n".join([
+                f"{'사용자' if log['role'] == 'user' else 'AI'}: {log['content']}"
+                for log in recent_logs
+                if log.get('content')
+            ])
+        
+        # 요약 업데이트 필요 여부 (매 3턴마다)
+        should_update_summary = (turn_count > 0) and (turn_count % 3 == 0)
+        
+        # 프롬프트 구성
+        if should_update_summary:
+            # 응답 + 요약 업데이트 동시 요청
+            prompt = f"""
+당신은 노인 회상 치료를 돕는 친근한 AI 상담사 '복실이'입니다.
+
+[이전 대화 요약]
+{summary if summary else "(첫 대화입니다)"}
+
+[최근 대화 내용]
+{recent_context if recent_context else "(이전 대화 없음)"}
+
+[현재 사용자 말]
+{user_text}
+
+아래 지침을 반드시 따르세요:
+1. 따뜻하고 공감하는 어조로 대화하세요.
+2. 과거 기억을 떠올릴 수 있는 질문을 포함하세요.
+3. 2-3문장으로 간결하게 답변하세요.
+4. 존댓말을 사용하세요.
+5. 가끔 "멍!" 또는 "왈왈!"을 붙여주세요.
+6. 대화 요약도 함께 제공해주세요.
+
+**중요: 반드시 아래의 JSON 형식만 출력하세요. 다른 텍스트 없이 JSON만!**
+
+{{
+    "text": "AI 답변 (2-3문장)",
+    "sentiment": "happy|sad|curious|excited|nostalgic|comforting",
+    "new_summary": "지금까지의 전체 대화 내용을 3-4문장으로 요약 (한국어)"
+}}
+"""
+        else:
+            # 일반 응답만
+            prompt = f"""
+당신은 노인 회상 치료를 돕는 친근한 AI 상담사 '복실이'입니다.
+
+[이전 대화 요약]
+{summary if summary else "(첫 대화입니다)"}
+
+[최근 대화 내용]
+{recent_context if recent_context else "(이전 대화 없음)"}
+
+[현재 사용자 말]
+{user_text}
+
+아래 지침을 반드시 따르세요:
+1. 따뜻하고 공감하는 어조로 대화하세요.
+2. 과거 기억을 떠올릴 수 있는 질문을 포함하세요.
+3. 2-3문장으로 간결하게 답변하세요.
+4. 존댓말을 사용하세요.
+5. 가끔 "멍!" 또는 "왈왈!"을 붙여주세요.
+
+**중요: 반드시 아래의 JSON 형식만 출력하세요. 다른 텍스트 없이 JSON만!**
+
+{{
+    "text": "AI 답변 (2-3문장)",
+    "sentiment": "happy|sad|curious|excited|nostalgic|comforting"
+}}
+"""
+        
+        # Gemini API 호출 (Retry 로직)
+        import time
+        max_retries = 3
+        retry_count = 0
+        
+        while retry_count < max_retries:
+            try:
+                response = gemini_model.generate_content(prompt)
+                break
+            except Exception as api_error:
+                error_str = str(api_error)
+                if "429" in error_str or "quota" in error_str.lower():
+                    retry_count += 1
+                    import re
+                    retry_match = re.search(r'retry in (\d+)', error_str)
+                    retry_delay = int(retry_match.group(1)) if retry_match else 10
+                    
+                    if retry_count < max_retries:
+                        logger.warning(f"⚠️ Gemini Quota 초과, {retry_delay}초 후 재시도 ({retry_count}/{max_retries})")
+                        time.sleep(retry_delay)
+                    else:
+                        logger.error("❌ Gemini Quota 초과, 최대 재시도 횟수 도달")
+                        return FALLBACK_RESPONSE
+                else:
+                    raise api_error
+        
+        # 응답 파싱
+        if response and response.text:
+            import json
+            import re
+            
+            response_text = response.text.strip()
+            
+            # 코드블록 제거
+            json_match = re.search(r'```(?:json)?\s*(.*?)\s*```', response_text, re.DOTALL)
+            if json_match:
+                response_text = json_match.group(1)
+            
+            # { ... } 패턴 추출
+            json_match = re.search(r'\{[^{}]*\}', response_text, re.DOTALL)
+            if json_match:
+                response_text = json_match.group(0)
+            
+            try:
+                ai_reply = json.loads(response_text)
+                
+                if "text" in ai_reply and "sentiment" in ai_reply:
+                    logger.info(f"[Memory] 답변 성공: {ai_reply['text'][:50]}...")
+                    return ai_reply
+                else:
+                    logger.warning("Gemini 응답에 필수 필드 누락")
+                    return FALLBACK_RESPONSE
+            except json.JSONDecodeError as e:
+                logger.warning(f"JSON 파싱 실패: {e}")
+                return {
+                    "text": response.text.strip()[:200],
+                    "sentiment": "comforting"
+                }
+        else:
+            return FALLBACK_RESPONSE
+    
+    except Exception as e:
+        logger.error(f"Summary-Buffer Memory 답변 생성 실패: {str(e)}")
+        logger.error(traceback.format_exc())
+        return FALLBACK_RESPONSE
+
 
 # ============================================================
-# Brain: Gemini 1.5 Flash
+# Brain: Gemini 1.5 Flash (Legacy - 기존 호환용)
 # ============================================================
 def generate_reply(user_text: str, user_id: str, session_id: str = None) -> dict:
     """

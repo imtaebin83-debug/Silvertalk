@@ -457,11 +457,38 @@ async def send_voice_message(
     session.turn_count += 1
     db.commit()
     
-    # Celery 태스크 실행 (S3 URL 전달)
-    # 기본 queue 사용 (RunPod worker가 구독 중인 queue)
+    # Summary-Buffer Memory: 현재 요약과 최근 대화 로그 조회
+    current_summary = session.summary or ""
+    
+    # 최근 6개 ChatLog 조회 (3턴 = user 3개 + assistant 3개)
+    recent_logs_db = (
+        db.query(ChatLog)
+        .filter(ChatLog.session_id == session.id)
+        .order_by(ChatLog.created_at.desc())
+        .limit(6)
+        .all()
+    )
+    # 시간순 정렬 (오래된 것부터)
+    recent_logs_db.reverse()
+    
+    # dict 형태로 직렬화
+    recent_logs = [
+        {"role": log.role, "content": log.content}
+        for log in recent_logs_db
+        if log.content != "[음성 메시지]"  # 아직 STT 되지 않은 메시지 제외
+    ]
+    
+    # Celery 태스크 실행 (Summary-Buffer Memory 인자 추가)
     task = celery_app.send_task(
         "worker.tasks.process_audio_and_reply",
-        args=[s3_url, str(session.user_id), str(session.id)],
+        args=[
+            s3_url,
+            str(session.user_id),
+            str(session.id),
+            current_summary,
+            recent_logs,
+            session.turn_count
+        ],
         queue="ai_tasks"
     )
     
@@ -481,6 +508,7 @@ class SaveAIResponseRequest(BaseModel):
     session_id: str
     user_text: Optional[str] = ""
     ai_reply: str
+    new_summary: Optional[str] = None  # Summary-Buffer Memory: 업데이트된 요약
 
 @router.post("/messages/save-ai-response", summary="AI 응답 저장")
 async def save_ai_response(
@@ -491,6 +519,7 @@ async def save_ai_response(
     Polling 완료 후 AI 응답을 ChatLog에 저장
     
     클라이언트에서 task 결과를 받은 후 호출
+    + Summary-Buffer Memory: new_summary가 있으면 세션 요약 업데이트
     """
     session = db.query(ChatSession).filter(ChatSession.id == uuid.UUID(request.session_id)).first()
     
@@ -518,11 +547,18 @@ async def save_ai_response(
         content=request.ai_reply
     )
     db.add(ai_log)
+    
+    # Summary-Buffer Memory: 요약 업데이트
+    if request.new_summary:
+        session.summary = request.new_summary
+        logger.info(f"📝 세션 요약 업데이트: {request.new_summary[:50]}...")
+    
     db.commit()
     
     return {
         "status": "success",
-        "message": "대화가 저장되었습니다."
+        "message": "대화가 저장되었습니다.",
+        "summary_updated": request.new_summary is not None
     }
 
 

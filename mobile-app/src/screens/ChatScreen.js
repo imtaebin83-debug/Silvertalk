@@ -327,7 +327,7 @@ const ChatScreen = ({ route, navigation }) => {
 
       {/* 하단: 채팅 영역 */}
       <View style={styles.chatSection}>
-      <ScrollView
+        <ScrollView
           ref={scrollViewRef}
           style={styles.chatScrollView}
           contentContainerStyle={styles.chatContent}
@@ -336,7 +336,7 @@ const ChatScreen = ({ route, navigation }) => {
           {(() => {
             const allMessages = [...localMessages, ...chatSession.messages];
             console.log('현재 메시지 목록:', allMessages);
-            
+
             return allMessages.map((msg, index) => (
               <View key={index} style={styles.messageRow}>
                 {msg.role === 'assistant' ? (
